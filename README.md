@@ -2,7 +2,6 @@
 
 <img width="1912" height="914" alt="image" src="https://github.com/user-attachments/assets/e5ca3395-ee17-459b-9ccb-106ec6f25340" />
 A vibecoded web app to manage 3CX Voicemail, improving on functionality within the pre-installed voicemail system, while also providing the backend to serve a Yealink XML App for visual voicemail.
-
 -------------------
 # Features
 - Group-based voicemail boxes to fit within your business call flow requirements.
@@ -12,6 +11,18 @@ A vibecoded web app to manage 3CX Voicemail, improving on functionality within t
 - Timestamp tracking for when staff review voicemails and follow up with callers.
 - On-CPU transcription for voicemails.
 -------------------
+# Disclaimer
+This project is an independent, unofficial tool and is not affiliated with, endorsed by, or supported by 3CX in any way.
+
+This application works by directly reading from and modifying the 3CX PostgreSQL database, which is not a supported or documented integration method. As a result:
+
+Use of this software may violate the 3CX Terms of Use and/or End User License Agreement. It is your responsibility to review 3CX's terms and determine whether use of this tool is permitted in your environment.
+No warranty is provided, express or implied, regarding the functionality, stability, or supportability of your 3CX installation while using this software. Direct database modifications may cause unexpected behavior, data corruption, loss of functionality, or issues with future 3CX updates.
+Using this tool may void or complicate your eligibility for official 3CX support.
+The authors and contributors accept no liability for any damages, data loss, service outages, or breach-of-terms consequences arising from the use of this software.
+
+Use entirely at your own risk. Always back up your database before use, and test in a non-production environment first.
+-----------------------
 # App Dependencies
 - Python
   - FastAPI: API for UI functions
