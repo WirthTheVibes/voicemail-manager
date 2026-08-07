@@ -19,7 +19,8 @@ This project is an independent, unofficial tool and is not affiliated with, endo
 This application works by directly reading from and modifying the 3CX PostgreSQL database, which is not a supported or documented integration method. As a result:
 
 Use of this software may violate the 3CX Terms of Use and/or End User License Agreement. It is your responsibility to review 3CX's terms and determine whether use of this tool is permitted in your environment.
-No warranty is provided, express or implied, regarding the functionality, stability, or supportability of your 3CX installation while using this software. Direct database modifications may cause unexpected behavior, data corruption, loss of functionality, or issues with future 3CX updates.
+No warranty is provided, express or implied, regarding the functionality, stability, or supportability of your 3CX installation while using this software. Direct Database modifications may cause unexpected behavior, data corruption, loss of functionality, or issues with future 3CX updates.
+
 Using this tool may void or complicate your eligibility for official 3CX support.
 The authors and contributors accept no liability for any damages, data loss, service outages, or breach-of-terms consequences arising from the use of this software.
 
