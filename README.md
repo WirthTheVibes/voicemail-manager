@@ -10,7 +10,7 @@ A vibecoded web app to manage 3CX Voicemail, improving on functionality within t
 - Click-to-call within app to call back a customer.
 - Voicemail delegation to end users, allowing users to manage and review other mailboxes within app.
 - Timestamp tracking for when staff review voicemails and follow up with callers.
-- On-CPU transcription for voicemails.
+- On-CPU transcription for voicemails using faster-whisper mini.
 
 -------------------
 # Disclaimer
