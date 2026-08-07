@@ -16,3 +16,4 @@ A vibecoded 3CX Voicemail Manager to better improve on functionality within the 
 - PJSUA
 - 3CX
   - Local CDR file for accurate call path tracing.
+  - 1+ free extensions for voicemail manager phone extension and group voicemail boxes. 
