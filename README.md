@@ -14,7 +14,7 @@ A vibecoded web app to manage 3CX Voicemail, improving on functionality within t
 -------------------
 # App Dependencies
 - Python
-  - FastAPI: API for UI functioins
+  - FastAPI: API for UI functions
   - Uvicorn: Web Server
   - psycopg2-binary: reading/writing  3CX Postgres Database
   - itsdangerous: session tokens
