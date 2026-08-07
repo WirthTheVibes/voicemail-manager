@@ -1,0 +1,11 @@
+*.env
+*.db
+*.db-journal
+models/
+core
+__pycache__/
+*.pyc
+.github_token
+.deployed_version
+venv/
+folder_name/

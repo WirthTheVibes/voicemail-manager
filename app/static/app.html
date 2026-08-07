@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voicemail Manager</title>
+<script>
+  // app.html is served for ANY path under /app (see the server's catch-all
+  // route in main.py -- that's what makes deep links like /app/205/1234 or
+  // /app/settings/users/205 survive a hard refresh) so a plain relative
+  // "styles.css"/"app.js" resolves wrong at every depth past the bare /app
+  // itself (e.g. /app/205 would look for it at /app/styles.css). Compute
+  // the real asset root from location.pathname instead. Also has to cope
+  // with 3CX's nginx reverse-proxying this whole app under /vm-manager/
+  // (see app.js's own matching BASE constant) -- APP_BASE ends up "" for a
+  // direct http://host:8080/app/... hit, or "/vm-manager" behind that proxy.
+  var APP_BASE = (function () {
+    var m = location.pathname.match(/^(.*)\/app(?:\/.*)?$/);
+    return m ? m[1] : "";
+  })();
+  document.write('<link rel="stylesheet" href="' + APP_BASE + '/styles.css">');
+</script>
+</head>
+<body>
+
+<div class="app-shell">
+  <nav class="nav">
+    <span class="nav-brand">Voicemail Manager</span>
+    <button class="icon-btn" id="refresh-btn" title="Refresh" aria-label="Refresh">&#8635;</button>
+    <button class="icon-btn hidden" id="notify-btn" title="Enable voicemail notifications on this device" aria-label="Enable notifications">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M13.73 21a2 2 0 0 1-3.46 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <span class="nav-user" id="nav-user"></span>
+    <button class="icon-btn hidden" id="settings-btn" title="Settings" aria-label="Settings">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
+    <button class="icon-btn" id="logout-btn" title="Sign out" aria-label="Sign out">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        <polyline points="16 17 21 12 16 7" stroke="currentColor" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        <line x1="21" y1="12" x2="9" y2="12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      </svg>
+    </button>
+  </nav>
+
+  <div class="main-body">
+    <aside class="sidebar">
+      <div class="sidebar-user-wrap">
+        <button type="button" class="sidebar-user mailbox-row" id="sidebar-user"></button>
+        <div class="user-view-switch" id="sidebar-user-popover">
+          <button type="button" class="user-popover-option" data-mode="voicemail">
+            <span>Voicemails</span>
+            <span class="badge hidden" id="popover-unread-badge"></span>
+          </button>
+          <button type="button" class="user-popover-option" data-mode="calls">
+            <span>Call Log</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="sidebar-search-row">
+        <div class="sidebar-search-box">
+          <svg class="search-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <line x1="9.8" y1="9.8" x2="14" y2="14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+          </svg>
+          <input class="input sidebar-search-input" id="sidebar-search" placeholder="Search">
+          <button type="button" class="sort-icon-btn" id="sidebar-sort-toggle" aria-label="Toggle sort order">
+            <span class="sort-icon-box" id="sidebar-sort-icon">1</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="sidebar-scroll">
+        <div class="hidden" id="group-section">
+          <div class="sidebar-heading" id="group-heading">Group Mailboxes</div>
+          <div id="group-mailbox-list"></div>
+        </div>
+
+        <div id="individual-section">
+          <div class="sidebar-heading">Mailboxes</div>
+          <div id="mailbox-list"></div>
+        </div>
+      </div>
+
+      <div class="sidebar-bottom">
+        <a href="#" id="view-all-link" class="view-all-link">View all voicemails</a>
+      </div>
+    </aside>
+
+    <main class="message-panel">
+      <div class="search-row">
+        <input class="input" id="search-input" placeholder="Search caller...">
+        <div class="date-filter-group">
+          <input class="input date-input" id="search-date-from" type="date" title="From date" aria-label="From date">
+          <span class="date-filter-sep">&ndash;</span>
+          <input class="input date-input" id="search-date-to" type="date" title="To date" aria-label="To date">
+          <button type="button" class="btn btn-secondary" id="search-date-clear" title="Clear date filter">Clear</button>
+        </div>
+      </div>
+      <div class="settings-tabs mailbox-view-tabs hidden" id="mailbox-view-tabs">
+        <button class="tab-btn" type="button" data-view="voicemail">Voicemail</button>
+        <button class="tab-btn" type="button" data-view="calls">Call Log</button>
+      </div>
+      <table class="table">
+        <thead id="message-table-head">
+          <tr>
+            <th class="col-status-dot"></th>
+            <th class="col-from">From</th>
+            <th class="col-received">Received</th>
+            <th class="col-duration">Duration</th>
+            <th class="col-first-reviewer">Reviewed by</th>
+          </tr>
+        </thead>
+        <tbody id="message-rows">
+          <tr><td class="col-status-dot"></td><td colspan="4" style="opacity:0.5; padding: var(--space-4);">Loading…</td></tr>
+        </tbody>
+      </table>
+      <div class="pagination-row" id="message-pagination"></div>
+    </main>
+
+    <aside class="detail-panel" id="detail-panel">
+      <div class="detail-empty">Select a message to view details.</div>
+    </aside>
+  </div>
+</div>
+
+<div id="settings-overlay" class="settings-overlay hidden">
+  <div class="settings-dialog">
+    <div class="settings-header">
+      <h2 style="margin:0;">Settings</h2>
+      <button class="icon-btn" id="settings-close">&times;</button>
+    </div>
+    <div id="settings-body"></div>
+  </div>
+</div>
+
+<div id="error-modal-overlay" class="settings-overlay hidden">
+  <div class="settings-dialog small">
+    <div class="settings-header">
+      <h2 id="error-modal-title" style="margin:0;">Error</h2>
+      <button class="icon-btn" id="error-modal-close">&times;</button>
+    </div>
+    <div id="error-modal-body" class="error-modal-body"></div>
+  </div>
+</div>
+
+<div id="share-modal-overlay" class="settings-overlay hidden">
+  <div class="settings-dialog small">
+    <div class="settings-header">
+      <h2 style="margin:0;">Share voicemail</h2>
+      <button class="icon-btn" id="share-modal-close">&times;</button>
+    </div>
+    <div id="share-modal-body"></div>
+  </div>
+</div>
+
+<script>document.write('<script src="' + APP_BASE + '/app.js"><\/script>');</script>
+</body>
+</html>

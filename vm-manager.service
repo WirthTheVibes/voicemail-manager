@@ -1,0 +1,32 @@
+[Unit]
+Description=3CX Voicemail Manager
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=phonesystem
+Group=phonesystem
+WorkingDirectory=/opt/vm-manager
+EnvironmentFile=/opt/vm-manager/.env
+ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host ${HOST} --port ${PORT}
+Restart=on-failure
+RestartSec=5
+
+# Long-lived SSE connections (/api/events) never close on their own, so
+# uvicorn's graceful shutdown can hang waiting for them -- cap it so a
+# restart SIGKILLs quickly instead of sitting in deactivating for systemd's
+# ~90s default and taking the site down (502s) the whole time.
+TimeoutStopSec=10
+
+# Core dumps for the pjsua2 assert-abort we're chasing: soft RLIMIT_CORE
+# defaults to 0 even though the unit was otherwise unrestricted, so no crash
+# has ever actually produced a core file. Remove once that's root-caused.
+LimitCORE=infinity
+
+# Hardening (kept loose enough to read 3CX's voicemail tree and app dir)
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
