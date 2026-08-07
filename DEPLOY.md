@@ -1,29 +1,44 @@
 # Deploying to another 3CX server
 
-## 1. Copy the code over (not the data)
+Source of truth is the private GitHub repo `WirthTheVibes/voicemail-manager`.
+This server has `git` and pushes to it directly. Other 3CX hosts do **not**
+have `git` installed (and we deliberately don't add it there) — they pull
+updates via `update.sh`, which downloads a tarball of the latest commit over
+the GitHub API using `curl`/`tar`/`rsync`, all stock on a Debian 3CX box.
 
-From this server:
+## 1. Bootstrap a brand-new host (one-time, no git needed)
+
+A fresh host has nothing at `/opt/vm-manager` yet, so `update.sh` can't
+bootstrap itself. Manually copy just two files over first (scp, sftp,
+whatever's convenient):
 
 ```bash
-# Excludes this server's app-specific state — the new server should start
-# with a clean SQLite DB and its own .env, not inherit this one's. `models/`
-# is the downloaded faster-whisper weights (see app/transcription.py) --
-# skip it too so a new server re-downloads on first local transcription
-# instead of inheriting a possibly-stale copy.
-rsync -av --exclude='.env' --exclude='vm_manager.db' --exclude='venv' --exclude='models' \
-  /opt/vm-manager/ root@<new-server>:/opt/vm-manager/
+ssh root@<new-server> mkdir -p /opt/vm-manager
+scp /opt/vm-manager/update.sh root@<new-server>:/opt/vm-manager/
+scp /opt/vm-manager/.github_token root@<new-server>:/opt/vm-manager/   # see note below
 ```
 
-(Any method works — scp, a tarball, git — the point is just: skip `.env`,
-`vm_manager.db`, and `models/`.)
+**Use a read-only token on target hosts, not this server's push token.**
+Create a separate fine-grained PAT on GitHub scoped to just this repo with
+`Contents: Read-only` (Settings → Developer settings → Fine-grained tokens).
+This server's own `.github_token` has `Contents: Read and write` because it
+needs to push — don't copy that one to other hosts.
 
-## 2. Run the installer on the new server
+Then on the new host:
 
 ```bash
 ssh root@<new-server>
+chmod 600 /opt/vm-manager/.github_token
 cd /opt/vm-manager
-sudo ./install.sh
+sudo ./update.sh
 ```
+
+`update.sh` downloads the full repo tarball (which includes `install.sh`),
+applies it, then runs `install.sh` itself — from here on the host is fully
+set up. Continue with "Finish the one thing the script can't safely
+automate" below.
+
+## 2. What `install.sh` does (run automatically by `update.sh` above)
 
 This checks the new server actually looks like a 3CX box (the `phonesystem`
 OS user, Postgres peer auth, the voicemail audio path), installs the Python
@@ -116,28 +131,28 @@ with a real extension + PIN on that PBX.
 
 ## Updating an already-deployed server
 
-Same idea as a fresh install, just re-run both steps — everything in them is
-idempotent and skips/preserves what's already there:
+On this server: normal git workflow — `git add`/`git commit`/`git push`
+(credentials come from the `credential.helper` already configured against
+`.github_token`, no need to pass the token by hand).
+
+On any target host (including re-running here), no git needed:
 
 ```bash
-# from this server
-rsync -av --exclude='.env' --exclude='vm_manager.db' --exclude='venv' --exclude='models' \
-  /opt/vm-manager/ root@<target-server>:/opt/vm-manager/
-
-ssh root@<target-server>
 cd /opt/vm-manager
-sudo ./install.sh          # leaves .env alone since it already exists;
-                            # re-syncs deps, systemd unit, nginx snippet
-systemctl restart vm-manager.service
+sudo ./update.sh
 ```
 
-`install.sh` won't touch an existing `.env`, so pulling in new `.env` keys
-added since the target server's last install (check this file's diff, or
-just `grep` for the key in `install.sh`'s heredoc) is a manual step — append
-them by hand.
-
-`install.sh` reinstalls and restarts `sip-reject-watch.service` on every
-run, so it picks up code changes automatically — no separate step needed.
+`update.sh` compares the latest commit on `main` against
+`.deployed_version` (a local marker file, not tracked in git); if there's
+nothing new it exits immediately. Otherwise it downloads a tarball of the
+latest commit, `rsync --delete`s it over the app directory (still excluding
+`.env`/`vm_manager.db`/`models/`/`core`/`.github_token` — anything deleted
+upstream is now also cleaned up locally, unlike the old rsync method), then
+re-runs `install.sh` and restarts `vm-manager.service` +
+`sip-reject-watch.service` automatically. `install.sh` won't touch an
+existing `.env`, so pulling in new `.env` keys added since the target
+server's last update (check the diff on GitHub, or `grep` for the key in
+`install.sh`'s heredoc) is still a manual step — append them by hand.
 
 If you added `dial_and_play.py`/pjsua2 (2.5, still optional) on the target
 server, that's not touched by `install.sh`; `build_pjsua2.sh` only needs

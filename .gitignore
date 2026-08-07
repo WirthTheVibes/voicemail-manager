@@ -6,4 +6,5 @@ core
 __pycache__/
 *.pyc
 .github_token
+.deployed_version
 venv/
