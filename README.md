@@ -4,6 +4,14 @@
 A vibecoded web app to manage 3CX Voicemail, improving on functionality within the pre-installed voicemail system, while also providing the backend to serve a Yealink XML App for visual voicemail.
 
 -------------------
+# Features
+- Group-based voicemail boxes to fit within your business call flow requirements.
+- API for Yealink XML apps to provide a visual voicemail experience for Yealink devices.
+- Click-to-call within app to call back a customer.
+- Voicemail delegation to end users, allowing users to manage and review other mailboxes within app.
+- Timestamp tracking for when staff review voicemails and follow up with callers.
+- On-CPU transcription for voicemails.
+-------------------
 # App Dependencies
 - Python
   - FastAPI: API for UI functioins
@@ -58,3 +66,7 @@ programablekey.2.xml_phonebook =
 phone_setting.missed_call_power_led_flash.enable = 0
 ```
 3. Enable 3CX CDR under Admin > Advanced > CDR - single file for all calls.
+
+----------------------
+# Known issues
+- Visual voicemail will play the audio file twice (known bug by Yealink, awaiting new firmware).
