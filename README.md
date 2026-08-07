@@ -1,5 +1,7 @@
 # voicemail-manager
+
 A vibecoded 3CX Voicemail Manager to better improve on functionality within the pre-installed voicemail system, while also providing the backend to serve a Yealink XML App for visual voicemail.
+
 -------------------
 # App Dependencies
 - Python
@@ -15,3 +17,4 @@ A vibecoded 3CX Voicemail Manager to better improve on functionality within the 
 - PJSUA
 - 3CX
   - Local CDR file for accurate call path tracing.
+  - 1+ free extensions for voicemail manager phone extension and group voicemail boxes. 
