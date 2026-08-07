@@ -69,6 +69,14 @@ button { font-family: inherit; }
   color: var(--color-text);
 }
 .input:focus { outline: 2px solid var(--color-accent); outline-offset: 0; }
+.input-needs-value {
+  border-color: #c62828;
+  animation: input-needs-value-glow 1.6s ease-in-out infinite;
+}
+@keyframes input-needs-value-glow {
+  0%, 100% { box-shadow: 0 0 2px 1px rgba(198, 40, 40, 0.45); }
+  50% { box-shadow: 0 0 6px 2px rgba(198, 40, 40, 0.85); }
+}
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   cursor: pointer; font-size: 14px; font-weight: 600; border: 1px solid transparent;

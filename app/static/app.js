@@ -1956,9 +1956,6 @@ async function renderSettings(initialTab = "general", initialSelected = null) {
             <input class="input" id="general-brand-name-input" placeholder="Your Phone System">
             <div class="share-hint">Shown in notification emails, e.g. "This notification was sent from &lt;name&gt; Voicemail Manager."</div>
           </div>
-          <button class="btn btn-primary" id="general-save-btn" type="button" style="margin-top:var(--space-3);">Save</button>
-          <div class="share-hint" id="general-save-status"></div>
-
           <h3 style="margin:var(--space-5) 0 var(--space-2) 0;border-top:1px solid var(--border-color, #d7d3d3);padding-top:var(--space-4);display:flex;align-items:center;gap:8px;">
             3CX Extension
             <span id="phone-reg-status" style="font-size:12px;font-weight:normal;display:inline-flex;align-items:center;gap:5px;"></span>
@@ -1997,8 +1994,6 @@ async function renderSettings(initialTab = "general", initialSelected = null) {
             <div class="share-hint" id="phone-password-hint"></div>
           </div>
           <div class="share-hint" style="margin-top:var(--space-3);">Changes take effect after the vm-manager service is next restarted.</div>
-          <button class="btn btn-primary" id="phone-save-btn" type="button" style="margin-top:var(--space-3);">Save</button>
-          <div class="share-hint" id="phone-save-status"></div>
 
           <h3 style="margin:var(--space-5) 0 var(--space-2) 0;border-top:1px solid var(--border-color, #d7d3d3);padding-top:var(--space-4);">Sign-in (Microsoft Entra ID)</h3>
           <div class="field">
@@ -2015,8 +2010,9 @@ async function renderSettings(initialTab = "general", initialSelected = null) {
             <div class="share-hint">Shared accounts (e.g. several admins) that all sign in as the management extension instead of matching their own mailbox.</div>
           </div>
           <div class="share-hint" style="margin-top:var(--space-3);">Changes take effect after the vm-manager service is next restarted.</div>
-          <button class="btn btn-primary" id="signin-save-btn" type="button" style="margin-top:var(--space-3);">Save</button>
-          <div class="share-hint" id="signin-save-status"></div>
+
+          <button class="btn btn-primary" id="general-save-btn" type="button" style="margin-top:var(--space-5);">Save</button>
+          <div class="share-hint" id="general-save-status"></div>
         </div>
       </div>
     </div>
@@ -2219,26 +2215,148 @@ async function renderSettings(initialTab = "general", initialSelected = null) {
   }
 }
 
-// --- General tab: white-label branding -----------------------------------
+// --- General tab: single Save button for Branding + 3CX Extension +
+// Sign-in. Each of those three blocks is independently optional (leaving a
+// whole block blank is fine -- that feature just stays disabled), but a
+// *partially* filled block is never useful, so validation only kicks in
+// once the admin has started typing into a block: fill one field in it and
+// the rest of that block's required fields glow red until they're filled
+// in too (or the admin blanks the field they started, opting back out).
+function markFieldValidity(input, missing) {
+  input.classList.toggle("input-needs-value", missing);
+}
+
 async function renderGeneralTab() {
-  const settings = await api("/api/admin/general-settings");
+  const generalSettings = await api("/api/admin/general-settings");
+  const phoneSettings = await api("/api/admin/phone-settings");
+  const msAuthSettings = await api("/api/admin/ms-auth-settings");
 
   const brandInput = el("general-brand-name-input");
+  brandInput.value = generalSettings.brand_name;
+
+  const hostInput = el("phone-host-input");
+  const domainInput = el("phone-domain-input");
+  const portInput = el("phone-port-input");
+  const transportSelect = el("phone-transport-select");
+  const extensionInput = el("phone-extension-input");
+  const authIdInput = el("phone-auth-id-input");
+  const passwordInput = el("phone-password-input");
+  const passwordHint = el("phone-password-hint");
+
+  hostInput.value = phoneSettings.pbx_host;
+  domainInput.value = phoneSettings.pbx_domain;
+  portInput.value = phoneSettings.pbx_port;
+  transportSelect.value = phoneSettings.pbx_transport;
+  extensionInput.value = phoneSettings.extension;
+  authIdInput.value = phoneSettings.auth_id;
+  passwordInput.value = "";
+  passwordInput.placeholder = phoneSettings.password_set ? "••••••••" : "";
+  let phonePasswordSet = phoneSettings.password_set;
+  passwordHint.textContent = phonePasswordSet
+    ? "Leave blank to keep the current password."
+    : "Not set — phone playback stays unavailable until this is filled in.";
+
+  renderPhoneRegStatus();
+
+  const tenantInput = el("signin-tenant-input");
+  const clientInput = el("signin-client-input");
+  const overrideInput = el("signin-override-input");
+
+  tenantInput.value = msAuthSettings.tenant_id;
+  clientInput.value = msAuthSettings.client_id;
+  overrideInput.value = msAuthSettings.override_emails;
+
   const saveBtn = el("general-save-btn");
   const saveStatus = el("general-save-status");
 
-  brandInput.value = settings.brand_name;
+  // A block only needs validating once the admin has put something into
+  // one of its fields -- otherwise "leave this whole feature unconfigured"
+  // would itself trip the "incomplete" glow.
+  function validate() {
+    const phoneFields = [hostInput, domainInput, extensionInput, authIdInput];
+    const phoneTouched = phoneFields.some((f) => f.value.trim()) || (passwordInput.value.trim() && !phonePasswordSet);
+    const phoneNeedsPassword = !phonePasswordSet && !passwordInput.value.trim();
+    let ok = true;
+    phoneFields.forEach((f) => {
+      const missing = phoneTouched && !f.value.trim();
+      markFieldValidity(f, missing);
+      if (missing) ok = false;
+    });
+    const passwordMissing = phoneTouched && phoneNeedsPassword;
+    markFieldValidity(passwordInput, passwordMissing);
+    if (passwordMissing) ok = false;
+
+    const signinFields = [tenantInput, clientInput];
+    const signinTouched = signinFields.some((f) => f.value.trim());
+    signinFields.forEach((f) => {
+      const missing = signinTouched && !f.value.trim();
+      markFieldValidity(f, missing);
+      if (missing) ok = false;
+    });
+
+    return ok;
+  }
+
+  // Clear a field's glow as soon as it's fixed, without waiting for the
+  // next Save click.
+  [hostInput, domainInput, extensionInput, authIdInput, passwordInput, tenantInput, clientInput].forEach((f) => {
+    f.addEventListener("input", validate);
+  });
 
   saveBtn.addEventListener("click", async () => {
+    if (!validate()) {
+      saveStatus.textContent = "Fill in every highlighted field, or clear the whole section to leave it unconfigured.";
+      return;
+    }
     saveBtn.disabled = true;
     saveStatus.textContent = "Saving…";
     try {
-      const updated = await api("/api/admin/general-settings", {
+      const updatedGeneral = await api("/api/admin/general-settings", {
         method: "PUT",
         body: JSON.stringify({ brand_name: brandInput.value }),
       });
-      brandInput.value = updated.brand_name;
-      saveStatus.textContent = "Saved.";
+      brandInput.value = updatedGeneral.brand_name;
+
+      const updatedPhone = await api("/api/admin/phone-settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          pbx_host: hostInput.value,
+          pbx_domain: domainInput.value,
+          pbx_port: parseInt(portInput.value, 10) || 5060,
+          pbx_transport: transportSelect.value,
+          extension: extensionInput.value,
+          auth_id: authIdInput.value,
+          password: passwordInput.value || null,
+        }),
+      });
+      hostInput.value = updatedPhone.pbx_host;
+      domainInput.value = updatedPhone.pbx_domain;
+      portInput.value = updatedPhone.pbx_port;
+      transportSelect.value = updatedPhone.pbx_transport;
+      extensionInput.value = updatedPhone.extension;
+      authIdInput.value = updatedPhone.auth_id;
+      passwordInput.value = "";
+      phonePasswordSet = updatedPhone.password_set;
+      passwordInput.placeholder = updatedPhone.password_set ? "••••••••" : "";
+      passwordHint.textContent = updatedPhone.password_set
+        ? "Leave blank to keep the current password."
+        : "Not set — phone playback stays unavailable until this is filled in.";
+      renderPhoneRegStatus();
+
+      const updatedSignin = await api("/api/admin/ms-auth-settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          tenant_id: tenantInput.value,
+          client_id: clientInput.value,
+          override_emails: overrideInput.value,
+        }),
+      });
+      tenantInput.value = updatedSignin.tenant_id;
+      clientInput.value = updatedSignin.client_id;
+      overrideInput.value = updatedSignin.override_emails;
+
+      validate();
+      saveStatus.textContent = "Saved. Restart the vm-manager service for the 3CX Extension and Sign-in changes to take effect.";
     } catch (err) {
       saveStatus.textContent = "";
       showApiErrorModal(err);
@@ -2246,9 +2364,6 @@ async function renderGeneralTab() {
       saveBtn.disabled = false;
     }
   });
-
-  await renderPhoneSection();
-  await renderSignInSection();
 }
 
 // --- General tab: Phone header registration indicator ---------------------
@@ -2273,111 +2388,6 @@ async function renderPhoneRegStatus() {
   } catch (err) {
     statusEl.innerHTML = "";
   }
-}
-
-// --- General tab: Phone (PJSUA/SIP connection) ---------------------------
-async function renderPhoneSection() {
-  const settings = await api("/api/admin/phone-settings");
-
-  const hostInput = el("phone-host-input");
-  const domainInput = el("phone-domain-input");
-  const portInput = el("phone-port-input");
-  const transportSelect = el("phone-transport-select");
-  const extensionInput = el("phone-extension-input");
-  const authIdInput = el("phone-auth-id-input");
-  const passwordInput = el("phone-password-input");
-  const passwordHint = el("phone-password-hint");
-  const saveBtn = el("phone-save-btn");
-  const saveStatus = el("phone-save-status");
-
-  hostInput.value = settings.pbx_host;
-  domainInput.value = settings.pbx_domain;
-  portInput.value = settings.pbx_port;
-  transportSelect.value = settings.pbx_transport;
-  extensionInput.value = settings.extension;
-  authIdInput.value = settings.auth_id;
-  passwordInput.value = "";
-  passwordInput.placeholder = settings.password_set ? "••••••••" : "";
-  passwordHint.textContent = settings.password_set
-    ? "Leave blank to keep the current password."
-    : "Not set — phone playback stays unavailable until this is filled in.";
-
-  renderPhoneRegStatus();
-
-  saveBtn.addEventListener("click", async () => {
-    saveBtn.disabled = true;
-    saveStatus.textContent = "Saving…";
-    try {
-      const updated = await api("/api/admin/phone-settings", {
-        method: "PUT",
-        body: JSON.stringify({
-          pbx_host: hostInput.value,
-          pbx_domain: domainInput.value,
-          pbx_port: parseInt(portInput.value, 10) || 5060,
-          pbx_transport: transportSelect.value,
-          extension: extensionInput.value,
-          auth_id: authIdInput.value,
-          password: passwordInput.value || null,
-        }),
-      });
-      hostInput.value = updated.pbx_host;
-      domainInput.value = updated.pbx_domain;
-      portInput.value = updated.pbx_port;
-      transportSelect.value = updated.pbx_transport;
-      extensionInput.value = updated.extension;
-      authIdInput.value = updated.auth_id;
-      passwordInput.value = "";
-      passwordInput.placeholder = updated.password_set ? "••••••••" : "";
-      passwordHint.textContent = updated.password_set
-        ? "Leave blank to keep the current password."
-        : "Not set — phone playback stays unavailable until this is filled in.";
-      saveStatus.textContent = "Saved. Restart the vm-manager service for this to take effect.";
-    } catch (err) {
-      saveStatus.textContent = "";
-      showApiErrorModal(err);
-    } finally {
-      saveBtn.disabled = false;
-    }
-  });
-}
-
-// --- General tab: Sign-in (Microsoft Entra ID) ----------------------------
-async function renderSignInSection() {
-  const settings = await api("/api/admin/ms-auth-settings");
-
-  const tenantInput = el("signin-tenant-input");
-  const clientInput = el("signin-client-input");
-  const overrideInput = el("signin-override-input");
-  const saveBtn = el("signin-save-btn");
-  const saveStatus = el("signin-save-status");
-
-  tenantInput.value = settings.tenant_id;
-  clientInput.value = settings.client_id;
-  overrideInput.value = settings.override_emails;
-
-  saveBtn.addEventListener("click", async () => {
-    saveBtn.disabled = true;
-    saveStatus.textContent = "Saving…";
-    try {
-      const updated = await api("/api/admin/ms-auth-settings", {
-        method: "PUT",
-        body: JSON.stringify({
-          tenant_id: tenantInput.value,
-          client_id: clientInput.value,
-          override_emails: overrideInput.value,
-        }),
-      });
-      tenantInput.value = updated.tenant_id;
-      clientInput.value = updated.client_id;
-      overrideInput.value = updated.override_emails;
-      saveStatus.textContent = "Saved. Restart the vm-manager service for this to take effect.";
-    } catch (err) {
-      saveStatus.textContent = "";
-      showApiErrorModal(err);
-    } finally {
-      saveBtn.disabled = false;
-    }
-  });
 }
 
 // --- Transcription tab: enable/disable + engine choice ------------------------

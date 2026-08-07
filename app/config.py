@@ -43,9 +43,9 @@ THREECX_ADMIN_PASSWORD = os.environ["THREECX_ADMIN_PASSWORD"]
 # it's a credential of the same class as THREECX_ADMIN_PASSWORD above.
 THREECX_ADMIN_TOTP_SECRET = os.environ.get("THREECX_ADMIN_TOTP_SECRET", "")
 
-# Phone playback (see phone_service.py): reuses dial_and_play.py's own env
-# vars so the two never drift out of sync. Optional -- if PBX_HOST/EXTENSION/
-# PASSWORD aren't set, the phone-call button just stays unavailable (503)
+# Phone playback (see phone_service.py): configured via Settings > Phone,
+# stored in the app_setting DB table. Optional -- if PBX host/extension/
+# password aren't set, the phone-call button just stays unavailable (503)
 # rather than blocking app startup, since voicemail viewing doesn't depend
 # on it.
 PHONE_HOST = _migrated("pbx_host", "PBX_HOST")

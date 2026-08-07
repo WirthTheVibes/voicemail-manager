@@ -3,8 +3,9 @@ Persistent PJSUA2 SIP client backing the voicemail detail panel's phone-icon
 playback button and "Call back" button (routes/messages.py, routes/calls.py).
 
 Registers once at app startup (see main.py's lifespan) as the extension
-configured in .env (PBX_HOST/EXTENSION/AUTH_ID/PASSWORD -- same block
-dial_and_play.py uses), and stays registered for the life of the process.
+configured via Settings > Phone (PBX host/domain/port/transport, extension,
+auth id, password -- stored in the app_setting DB table, see config.py's
+PHONE_* values), and stays registered for the life of the process.
 
 Every pjsua2/pjsip API call must happen on the one thread that called
 Endpoint.libCreate()/libInit() -- that's the thread pjsip implicitly treats
@@ -271,7 +272,7 @@ class PhoneService:
         phone playback isn't configured -- it just no-ops so the rest of the
         app (voicemail viewing/streaming) is unaffected."""
         if not config.PHONE_ENABLED:
-            logger.info("Phone playback disabled (PBX_HOST/EXTENSION/PASSWORD not set in .env)")
+            logger.info("Phone playback disabled (PBX host/extension/password not configured -- set them in Settings > Phone)")
             return
         if pj is None:
             logger.warning("Phone playback disabled: pjsua2 is not installed")

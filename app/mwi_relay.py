@@ -165,7 +165,7 @@ class MwiRelay:
         playback isn't configured -- reuses the same PBX_* credentials as
         phone_service, so if those aren't set this just no-ops."""
         if not config.PHONE_ENABLED:
-            logger.info("MWI relay disabled (same PBX_HOST/EXTENSION/PASSWORD as phone playback, unset in .env)")
+            logger.info("MWI relay disabled (same PBX host/extension/password as phone playback, not configured -- set them in Settings > Phone)")
             return
         self.pbx_ip = config.PHONE_HOST
         self.pbx_port = config.PHONE_PORT
