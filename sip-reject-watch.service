@@ -1,0 +1,22 @@
+[Unit]
+Description=SIP call-rejection watcher (raw packet sniff for vm-manager)
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/vm-manager/sip_reject_watch.py
+User=nobody
+Group=phonesystem
+AmbientCapabilities=CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_RAW
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+RuntimeDirectory=sip-reject-watch
+RuntimeDirectoryMode=0750
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3CX Voicemail Manager</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="login-screen">
+  <div class="login-card">
+    <h1>Voicemail Manager</h1>
+    <button class="btn btn-ms hidden" type="button" id="ms-signin-btn">
+      <svg width="21" height="21" viewBox="0 0 21 21" aria-hidden="true">
+        <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+        <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+        <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+        <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+      </svg>
+      Sign in with Microsoft
+    </button>
+    <form id="login-form">
+      <div class="field">
+        <label for="login-extension">Extension</label>
+        <input class="input" id="login-extension" name="extension" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="login-pin">Voicemail PIN</label>
+        <input class="input" id="login-pin" name="pin" type="password" autocomplete="current-password" required>
+      </div>
+      <button class="btn btn-primary" type="submit">Sign in</button>
+      <div id="login-error" class="error-text hidden"></div>
+    </form>
+  </div>
+</div>
+
+<script src="login.js"></script>
+</body>
+</html>
