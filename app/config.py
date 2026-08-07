@@ -37,6 +37,11 @@ APP_DB_PATH = os.environ.get("APP_DB_PATH", "/opt/vm-manager/vm_manager.db")
 THREECX_PBX_URL = os.environ["THREECX_PBX_URL"].rstrip("/")
 THREECX_ADMIN_EXTENSION = os.environ["THREECX_ADMIN_EXTENSION"]
 THREECX_ADMIN_PASSWORD = os.environ["THREECX_ADMIN_PASSWORD"]
+# Base32 TOTP secret for the admin extension, if it has 2FA enrolled in 3CX.
+# Optional -- unset means the login posts SecurityCode: "" as before (only
+# works if the admin account has no 2FA). Never migrated into app_setting_store:
+# it's a credential of the same class as THREECX_ADMIN_PASSWORD above.
+THREECX_ADMIN_TOTP_SECRET = os.environ.get("THREECX_ADMIN_TOTP_SECRET", "")
 
 # Phone playback (see phone_service.py): reuses dial_and_play.py's own env
 # vars so the two never drift out of sync. Optional -- if PBX_HOST/EXTENSION/

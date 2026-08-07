@@ -11,6 +11,7 @@ A vibecoded 3CX Voicemail Manager to better improve on functionality within the 
   - faster-whisper: on-server transcription
   - pywebpush: browser push notifications (not implemented yet)
   - pyjwt[crypto]: JWT signing for MS Auth and Yealink XML Browser sessions
+  - pyotp: TOTP codes for the 3CX admin login when 2FA is enrolled on that extension
 - PJSUA
 - 3CX
   - Local CDR file for accurate call path tracing.

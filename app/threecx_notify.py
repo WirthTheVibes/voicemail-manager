@@ -13,6 +13,7 @@ for the full protocol writeup this implementation follows.
 """
 import threading
 
+import pyotp
 import requests
 
 from . import config, threecx_db
@@ -97,12 +98,20 @@ class _AdminSession:
             self._logged_in = False
 
     def _login(self) -> None:
+        # SecurityCode is 3CX's TOTP field -- required whenever the admin
+        # extension has 2FA enrolled, ignored otherwise. Generated fresh per
+        # login attempt (not cached) since each code is only valid ~30s.
+        security_code = (
+            pyotp.TOTP(config.THREECX_ADMIN_TOTP_SECRET).now()
+            if config.THREECX_ADMIN_TOTP_SECRET
+            else ""
+        )
         resp = self._session.post(
             f"{config.THREECX_PBX_URL}{_LOGIN_PATH}",
             json={
                 "Username": config.THREECX_ADMIN_EXTENSION,
                 "Password": config.THREECX_ADMIN_PASSWORD,
-                "SecurityCode": "",
+                "SecurityCode": security_code,
                 "ReCaptchaResponse": None,
             },
             timeout=_TIMEOUT,

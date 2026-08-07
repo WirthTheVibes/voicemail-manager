@@ -55,7 +55,7 @@ if ! command -v pip3 >/dev/null 2>&1; then
 fi
 pip3 install --break-system-packages -q \
   fastapi "uvicorn[standard]" psycopg2-binary itsdangerous python-multipart python-dotenv requests \
-  faster-whisper pywebpush "pyjwt[crypto]"
+  faster-whisper pywebpush "pyjwt[crypto]" pyotp
 
 echo "== Building/installing pjsua2 (needed for phone-call/playback -- dial_and_play.py) =="
 # No working prebuilt wheel exists (see build_pjsua2.sh's own comment) --
