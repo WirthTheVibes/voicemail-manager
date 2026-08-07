@@ -1959,7 +1959,10 @@ async function renderSettings(initialTab = "general", initialSelected = null) {
           <button class="btn btn-primary" id="general-save-btn" type="button" style="margin-top:var(--space-3);">Save</button>
           <div class="share-hint" id="general-save-status"></div>
 
-          <h3 style="margin:var(--space-5) 0 var(--space-2) 0;border-top:1px solid var(--border-color, #d7d3d3);padding-top:var(--space-4);">Phone (PJSUA playback)</h3>
+          <h3 style="margin:var(--space-5) 0 var(--space-2) 0;border-top:1px solid var(--border-color, #d7d3d3);padding-top:var(--space-4);display:flex;align-items:center;gap:8px;">
+            3CX Extension
+            <span id="phone-reg-status" style="font-size:12px;font-weight:normal;display:inline-flex;align-items:center;gap:5px;"></span>
+          </h3>
           <div class="field">
             <label class="detail-section-heading">PBX host</label>
             <input class="input" id="phone-host-input" placeholder="127.0.0.1">
@@ -2248,6 +2251,30 @@ async function renderGeneralTab() {
   await renderSignInSection();
 }
 
+// --- General tab: Phone header registration indicator ---------------------
+async function renderPhoneRegStatus() {
+  const statusEl = el("phone-reg-status");
+  if (!statusEl) return;
+  statusEl.innerHTML = `<span class="status-dot" style="background:#9e9e9e;"></span> Checking…`;
+  try {
+    const status = await api("/api/admin/phone-status");
+    let color, label;
+    if (!status.configured) {
+      color = "#9e9e9e";
+      label = "Not configured";
+    } else if (status.registered) {
+      color = "#2e7d32";
+      label = "Registered with 3CX";
+    } else {
+      color = "#c62828";
+      label = status.reason ? `Not registered (${status.reason})` : "Not registered";
+    }
+    statusEl.innerHTML = `<span class="status-dot" style="background:${color};"></span> ${escapeHtml(label)}`;
+  } catch (err) {
+    statusEl.innerHTML = "";
+  }
+}
+
 // --- General tab: Phone (PJSUA/SIP connection) ---------------------------
 async function renderPhoneSection() {
   const settings = await api("/api/admin/phone-settings");
@@ -2274,6 +2301,8 @@ async function renderPhoneSection() {
   passwordHint.textContent = settings.password_set
     ? "Leave blank to keep the current password."
     : "Not set — phone playback stays unavailable until this is filled in.";
+
+  renderPhoneRegStatus();
 
   saveBtn.addEventListener("click", async () => {
     saveBtn.disabled = true;

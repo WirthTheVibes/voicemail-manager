@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from .. import app_db, config, threecx_db
 from ..deps import require_admin
+from ..phone_service import phone_service
 
 router = APIRouter()
 
@@ -211,6 +212,14 @@ def set_general_settings(body: GeneralSettingsRequest, session: dict = Depends(r
 @router.get("/api/admin/phone-settings")
 def get_phone_settings(session: dict = Depends(require_admin)):
     return app_db.get_phone_settings()
+
+
+@router.get("/api/admin/phone-status")
+def get_phone_status(session: dict = Depends(require_admin)):
+    """Live SIP registration state of the process's own phone_service
+    account -- reflects the extension currently in .env/DB, not whatever
+    unsaved values are sitting in the form."""
+    return phone_service.status()
 
 
 class PhoneSettingsRequest(BaseModel):

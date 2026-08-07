@@ -282,6 +282,17 @@ class PhoneService:
     def is_available(self) -> bool:
         return self._start_ok and self._acc is not None and self._acc.reg_ok
 
+    def status(self) -> dict:
+        """For the Settings > Phone header's registration indicator -- not
+        used by call_extension/call_back, which check reg_ok directly."""
+        if not config.PHONE_ENABLED:
+            return {"configured": False, "registered": False, "reason": "Not configured"}
+        if not self._start_ok:
+            return {"configured": True, "registered": False, "reason": "SIP client failed to start"}
+        if self._acc is None:
+            return {"configured": True, "registered": False, "reason": "No SIP account"}
+        return {"configured": True, "registered": self._acc.reg_ok, "reason": self._acc.reg_reason}
+
     def _run(self):
         try:
             ep = pj.Endpoint()
