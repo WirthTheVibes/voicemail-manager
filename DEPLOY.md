@@ -89,11 +89,14 @@ so a restart mid-day never double-fires a job, and a job that was due while
 the service was down still catches up the same day it comes back).
 
 Currently registered:
-- **`daily_digest`** — 07:00 server-local time. Emails one digest per
-  mailbox that currently has unread voicemail — same SMTP config and
-  recipient rules (`access.notification_recipients_for_mailbox`) as the
-  real-time "new voicemail" alert, so `SMTP_HOST`/`SMTP_FROM` in `.env` and
-  each mailbox's notify-suppress settings apply to both.
+- **`daily_digest`** — 07:00 server-local time. Emails one combined digest
+  per recipient, covering every mailbox they're a notification recipient
+  for that currently has unread voicemail (so someone who owns a personal
+  mailbox and belongs to a department mailbox gets one email, not two) —
+  same SMTP config and recipient rules
+  (`access.notification_recipients_for_mailbox`) as the real-time "new
+  voicemail" alert, so `SMTP_HOST`/`SMTP_FROM` in `.env` and each mailbox's
+  notify-suppress settings apply to both.
 
 To test without waiting for the scheduled time, run a job's entry point
 directly (bypasses the scheduler and its once-per-day tracking entirely):

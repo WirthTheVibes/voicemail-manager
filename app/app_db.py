@@ -149,6 +149,16 @@ CREATE TABLE IF NOT EXISTS watcher_state (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     last_seen_id INTEGER NOT NULL DEFAULT 0
 );
+
+-- One row per registered scheduler.py job, tracking the local calendar date
+-- it last ran on -- so a restart (or the scheduler loop just waking up late)
+-- never double-fires a job that already ran today, and a missed tick (e.g.
+-- the service was down at 07:00) still catches up the same day it comes
+-- back, rather than silently skipping to tomorrow.
+CREATE TABLE IF NOT EXISTS scheduler_job_state (
+    job_name TEXT PRIMARY KEY,
+    last_run_date TEXT
+);
 """
 
 
@@ -812,6 +822,24 @@ def get_watcher_last_seen_id() -> int:
 def set_watcher_last_seen_id(message_id: int):
     with get_conn() as conn:
         conn.execute("UPDATE watcher_state SET last_seen_id = ? WHERE id = 1", (message_id,))
+
+
+# --- scheduler job state ---------------------------------------------------
+def get_job_last_run_date(job_name: str) -> str | None:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT last_run_date FROM scheduler_job_state WHERE job_name = ?", (job_name,)
+        ).fetchone()
+        return row["last_run_date"] if row else None
+
+
+def set_job_last_run_date(job_name: str, date_str: str):
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO scheduler_job_state (job_name, last_run_date) VALUES (?, ?) "
+            "ON CONFLICT(job_name) DO UPDATE SET last_run_date = excluded.last_run_date",
+            (job_name, date_str),
+        )
 
 
 # --- heard audit ---------------------------------------------------------------

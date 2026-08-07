@@ -145,7 +145,7 @@ def unread_count_for_mailbox(extension: str) -> int:
 # digest email actually needs -- narrower than Q3 (skips wav_file/
 # transcription, which the digest never shows).
 Q19_UNREAD_MESSAGES = """
-SELECT id, caller, caller_name, callee, duration, created_time, crm_contact
+SELECT id, caller, caller_name, callee, duration, created_time, crm_contact, transcription
 FROM s_voicemail
 WHERE callee = %(extension)s
   AND (removed IS NULL OR removed = '')
