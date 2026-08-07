@@ -101,7 +101,7 @@ def _parse_ids(ids: str) -> list[int]:
 # client-side JS.
 _PACKED_TIME_RE = re.compile(r"^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})")
 
-# Desk phones are all physically in Kamloops -- see config.YEALINK_TIME_ZONE.
+# Desk phones are all in one timezone -- see config.YEALINK_TIME_ZONE.
 _PHONE_TZ = ZoneInfo(config.YEALINK_TIME_ZONE)
 
 

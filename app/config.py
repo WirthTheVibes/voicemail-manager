@@ -123,7 +123,7 @@ PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", f"{THREECX_PBX_URL}/vm-manag
 # for a full shift.
 YEALINK_TOKEN_MAX_AGE_SECONDS = int(os.environ.get("YEALINK_TOKEN_MAX_AGE_SECONDS", 300))
 # Desk phones show times converted to this zone rather than the raw UTC 3CX
-# stores -- kamloopsford.3cx.ca's phones are all on-site in Kamloops, BC.
+# stores -- pick the zone your desk phones are physically in.
 YEALINK_TIME_ZONE = os.environ.get("YEALINK_TIME_ZONE", "America/Vancouver")
 
 LOGIN_MAX_ATTEMPTS = int(os.environ.get("LOGIN_MAX_ATTEMPTS", 5))

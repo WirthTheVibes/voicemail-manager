@@ -15,7 +15,7 @@ touch pjsua2 objects directly, they enqueue a job and block briefly on a
 concurrent.futures.Future for the "INVITE sent" acknowledgement.
 
 Without an explicit outbound proxy, pjsip resolves each INVITE's destination
-from the Request-URI's own host (PBX_DOMAIN, e.g. kamloopsford.3cx.ca) via
+from the Request-URI's own host (PBX_DOMAIN, e.g. your-pbx.3cx.ca) via
 plain DNS -- which resolves to the PBX's *public* IP even when running on the
 PBX box itself, and that hairpin round-trip never comes back. Routing every
 request through PBX_HOST as an explicit proxy is what makes PBX_HOST=127.0.0.1

@@ -22,7 +22,7 @@ from . import config, threecx_db
 _PACKED_TIME_RE = re.compile(r"^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})")
 
 # Recipients read this in their inbox, not on a desk phone, but they're the
-# same Kamloops staff -- see config.YEALINK_TIME_ZONE's docstring.
+# same staff -- see config.YEALINK_TIME_ZONE's docstring.
 _LOCAL_TZ = ZoneInfo(config.YEALINK_TIME_ZONE)
 
 
@@ -110,6 +110,78 @@ _TEMPLATE = """\
 </tr>
 </table>
 """
+
+
+_DIGEST_TEMPLATE = """\
+<table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="width:600px;max-width:100%;border-collapse:collapse;border:1px solid #d7d3d3;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
+<tr>
+<td style="background-color:#004961;padding:24px 32px;">
+<p style="margin:0;font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:#e9f8ff;font-weight:bold;">Daily Voicemail Digest</p>
+<h1 style="margin:8px 0 0 0;font-family:Georgia,'Iowan Old Style','Palatino Linotype','Times New Roman',serif;font-size:22px;line-height:1.3;color:#ffffff;font-weight:600;">{count} unread voicemail{plural} for<br/><span style="color:#ffffff;">{mailbox_name}</span></h1>
+</td>
+</tr>
+<tr>
+<td style="padding:20px 32px 24px 32px;background-color:#eae9e9;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+{rows}
+</table>
+</td>
+</tr>
+<tr>
+<td style="padding:24px 32px 28px 32px;background-color:#eae9e9;border-top:1px solid #d7d3d3;text-align:center;" align="center">
+<p style="margin:0;font-size:11px;line-height:1.6;color:#605d5d;">This message was recorded by the Kamloops Ford phone system (3CX).</p>
+</td>
+</tr>
+</table>
+"""
+
+_DIGEST_ROW_TEMPLATE = """\
+<tr>
+<td style="padding:14px 0;border-bottom:1px solid #d7d3d3;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;">
+<tr>
+<td style="vertical-align:top;">
+<p style="margin:0;font-size:14px;color:#201e1d;font-weight:bold;">{caller_display}</p>
+<p style="margin:2px 0 0 0;font-size:13px;color:#605d5d;">{caller_sub} &middot; {time_display} &middot; {duration}s</p>
+</td>
+<td style="vertical-align:top;text-align:right;white-space:nowrap;" align="right">
+<a href="{listen_url}" style="display:inline-block;padding:9px 18px;font-size:13px;font-weight:bold;color:#ffffff;background-color:#0088b0;border-radius:4px;text-decoration:none;">Listen</a>
+</td>
+</tr>
+</table>
+</td>
+</tr>
+"""
+
+
+def build_digest(extension: str, messages: list[dict]) -> tuple[str, str]:
+    """Returns (subject, html_body) for the daily digest of a mailbox's
+    still-unread voicemails. messages is threecx_db.unread_messages_for_mailbox's
+    result (oldest first), already known to be non-empty by the caller."""
+    mailbox_name = _mailbox_name(extension)
+    rows = "".join(
+        _DIGEST_ROW_TEMPLATE.format(
+            caller_display=html.escape(
+                threecx_db.crm_display_name(m["crm_contact"])
+                or m["caller_name"]
+                or m["caller"]
+                or "Unknown caller"
+            ),
+            caller_sub=html.escape(format_phone(m["caller"] or m["caller_name"] or "")),
+            time_display=html.escape(_fmt_time(m["created_time"])),
+            duration=html.escape(str(m.get("duration") or "0")),
+            listen_url=f"{config.PUBLIC_BASE_URL}/app/{extension}/{m['id']}",
+        )
+        for m in messages
+    )
+    body = _DIGEST_TEMPLATE.format(
+        count=len(messages),
+        plural="" if len(messages) == 1 else "s",
+        mailbox_name=html.escape(mailbox_name),
+        rows=rows,
+    )
+    subject = f"{len(messages)} unread voicemail{'' if len(messages) == 1 else 's'} — {mailbox_name}"
+    return subject, body
 
 
 def format_phone(raw: str) -> str:

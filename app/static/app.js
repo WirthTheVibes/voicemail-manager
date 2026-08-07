@@ -3,7 +3,7 @@ const MESSAGES_PAGE_SIZE = 15;
 
 // Base path this app is actually served under -- "" when hit directly at
 // http://host:8080/, but e.g. "/vm-manager" when reverse-proxied at
-// https://kamloopsford.3cx.ca/vm-manager/ (see the nginx snippet that
+// https://your-pbx.3cx.ca/vm-manager/ (see the nginx snippet that
 // forwards that prefix here, stripping it before it reaches FastAPI --
 // this backend never sees it). Derived from this very script's own
 // resolved URL rather than hardcoded, so the same file works under either
