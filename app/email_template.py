@@ -15,6 +15,12 @@ from zoneinfo import ZoneInfo
 
 from . import config, threecx_db
 
+# TODO(branding): hardcoded placeholder. Replace with a DB-backed setting
+# (same pattern as app_db.get_transcription_settings) once that's wired up,
+# so each deployment can set its own company name from the admin UI instead
+# of editing source.
+BRAND_NAME = "Your Phone System"
+
 # Same packed "YYYYMMDDHHMMSS.ss" (UTC) format as s_voicemail.created_time
 # elsewhere -- see routes/yealink.py's _fmt_time docstring for the source
 # convention. Mirrored rather than imported since that one returns a
@@ -105,7 +111,7 @@ _TEMPLATE = """\
 
 <tr>
 <td style="padding:24px 32px 28px 32px;background-color:#eae9e9;border-top:1px solid #d7d3d3;text-align:center;" align="center">
-<p style="margin:0;font-size:11px;line-height:1.6;color:#605d5d;">This message was recorded by the Kamloops Ford phone system (3CX).</p>
+<p style="margin:0;font-size:11px;line-height:1.6;color:#605d5d;">This message was recorded by the {brand_name} phone system (3CX).</p>
 </td>
 </tr>
 </table>
@@ -129,7 +135,7 @@ _DIGEST_TEMPLATE = """\
 </tr>
 <tr>
 <td style="padding:24px 32px 28px 32px;background-color:#eae9e9;border-top:1px solid #d7d3d3;text-align:center;" align="center">
-<p style="margin:0;font-size:11px;line-height:1.6;color:#605d5d;">This message was recorded by the Kamloops Ford phone system (3CX).</p>
+<p style="margin:0;font-size:11px;line-height:1.6;color:#605d5d;">This message was recorded by the {brand_name} phone system (3CX).</p>
 </td>
 </tr>
 </table>
@@ -179,6 +185,7 @@ def build_digest(extension: str, messages: list[dict]) -> tuple[str, str]:
         plural="" if len(messages) == 1 else "s",
         mailbox_name=html.escape(mailbox_name),
         rows=rows,
+        brand_name=html.escape(BRAND_NAME),
     )
     subject = f"{len(messages)} unread voicemail{'' if len(messages) == 1 else 's'} — {mailbox_name}"
     return subject, body
@@ -234,6 +241,7 @@ def build(message: dict) -> tuple[str, str]:
         time_display=html.escape(time_display),
         transcription=html.escape(transcription),
         listen_url=listen_url,
+        brand_name=html.escape(BRAND_NAME),
     )
     subject = f"New Voicemail - {caller_display} - {format_phone(did)}"
     return subject, body

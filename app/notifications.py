@@ -41,7 +41,7 @@ except ImportError:
     WebPushException = Exception
 
 
-def _resolve_email(extension: str) -> str | None:
+def resolve_email(extension: str) -> str | None:
     """app_db's app_user cache first (may be a manual override); falls back
     to 3CX's own voicemail.email and caches it for next time -- see
     app_db.sync_user_email_from_3cx for why that never clobbers a manual
@@ -59,7 +59,7 @@ def _resolve_email(extension: str) -> str | None:
 def _send_smtp(message: dict) -> None:
     extension = message["callee"]
     recipient_extensions = access.notification_recipients_for_mailbox(extension)
-    to_addrs = sorted({addr for addr in (_resolve_email(ext) for ext in recipient_extensions) if addr})
+    to_addrs = sorted({addr for addr in (resolve_email(ext) for ext in recipient_extensions) if addr})
     if not to_addrs:
         logger.info("No email on file for any recipient of extension %s, skipping SMTP notify (message %s)", extension, message["id"])
         return

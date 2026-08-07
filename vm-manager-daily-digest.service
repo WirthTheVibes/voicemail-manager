@@ -1,0 +1,16 @@
+[Unit]
+Description=3CX Voicemail Manager - daily unread-voicemail digest
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=oneshot
+User=phonesystem
+Group=phonesystem
+WorkingDirectory=/opt/vm-manager
+EnvironmentFile=/opt/vm-manager/.env
+ExecStart=/usr/bin/python3 -m app.daily_digest
+
+# Hardening (kept loose enough to read 3CX's voicemail tree and app dir)
+NoNewPrivileges=true
+PrivateTmp=true

@@ -44,7 +44,8 @@ This checks the new server actually looks like a 3CX box (the `phonesystem`
 OS user, Postgres peer auth, the voicemail audio path), installs the Python
 dependencies system-wide, generates a **fresh** `.env` with a new
 `SECRET_KEY`, sets ownership, installs+enables the systemd service, installs
-an nginx snippet at `/var/lib/3cxpbx/Bin/nginx/conf/snippets/60-vm-manager.conf`
+and enables `vm-manager-daily-digest.timer` (see below), installs an nginx
+snippet at `/var/lib/3cxpbx/Bin/nginx/conf/snippets/60-vm-manager.conf`
 that reverse-proxies `https://<host>/vm-manager/` to the app on 3CX's own
 nginx, and installs+starts `sip-reject-watch.service` (mandatory — see
 below) — but does **not** start `vm-manager.service` itself yet.
@@ -79,6 +80,22 @@ tcpdump -i <iface> -n "port 5060"           # during a real call — confirm you
 `Group=phonesystem` in its unit matters: it's what lets `vm-manager.service`
 (which runs as `phonesystem`) read/write the query socket without either
 service running as root.
+
+**`vm-manager-daily-digest.timer`** runs `vm-manager-daily-digest.service`
+(a oneshot, `python3 -m app.daily_digest`) once a day at 07:00 server-local
+time. It emails one digest per mailbox that currently has unread voicemail —
+same SMTP config and recipient rules (`access.notification_recipients_for_mailbox`)
+as the real-time "new voicemail" alert, so `SMTP_HOST`/`SMTP_FROM` in `.env`
+and each mailbox's notify-suppress settings apply to both. Only the timer is
+enabled (`systemctl enable --now vm-manager-daily-digest.timer`) — the
+service itself stays disabled and is invoked by the timer, same relationship
+as any other `.service`+`.timer` pair. To test it without waiting for 7am:
+
+```bash
+systemctl start vm-manager-daily-digest.service   # runs it once, right now
+journalctl -u vm-manager-daily-digest.service -n 50
+systemctl list-timers vm-manager-daily-digest.timer   # confirm the schedule
+```
 
 ## 2.5 If you need dial_and_play.py (PJSUA2) on the new server
 

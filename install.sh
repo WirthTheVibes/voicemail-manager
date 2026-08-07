@@ -162,6 +162,16 @@ chown root:root /etc/systemd/system/vm-manager.service
 systemctl daemon-reload
 systemctl enable vm-manager.service
 
+echo "== Installing daily voicemail digest timer =="
+# Oneshot service + timer, not a long-running daemon -- the service itself
+# is never enabled (systemd runs it on-demand from the timer), only the
+# timer is.
+sed "s#/opt/vm-manager#${APP_DIR}#g" "$APP_DIR/vm-manager-daily-digest.service" > /etc/systemd/system/vm-manager-daily-digest.service
+sed "s#/opt/vm-manager#${APP_DIR}#g" "$APP_DIR/vm-manager-daily-digest.timer" > /etc/systemd/system/vm-manager-daily-digest.timer
+chown root:root /etc/systemd/system/vm-manager-daily-digest.service /etc/systemd/system/vm-manager-daily-digest.timer
+systemctl daemon-reload
+systemctl enable --now vm-manager-daily-digest.timer
+
 echo "== Installing nginx reverse-proxy snippet =="
 # 3CX's own nginx already terminates TLS on 443 (open in nftables by 3CX
 # itself) and includes conf/snippets/*.conf. Dropping a snippet there gets

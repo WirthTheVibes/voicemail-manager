@@ -140,6 +140,26 @@ def unread_count_for_mailbox(extension: str) -> int:
         return cur.fetchone()[0]
 
 
+# --- Q19: unread messages for a mailbox, for the daily digest ---------------
+# Same heard/removed rules as Q17_UNREAD_COUNT, but returns the rows the
+# digest email actually needs -- narrower than Q3 (skips wav_file/
+# transcription, which the digest never shows).
+Q19_UNREAD_MESSAGES = """
+SELECT id, caller, caller_name, callee, duration, created_time, crm_contact
+FROM s_voicemail
+WHERE callee = %(extension)s
+  AND (removed IS NULL OR removed = '')
+  AND (heard IS NULL OR heard IN ('', '0'))
+ORDER BY created_time ASC;
+"""
+
+
+def unread_messages_for_mailbox(extension: str):
+    with get_conn() as conn, conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(Q19_UNREAD_MESSAGES, {"extension": extension})
+        return cur.fetchall()
+
+
 # --- Q4: single message (for audio path lookup + authz) ---------------------
 # caller_name/created_time/duration/transcription are additive on top of the
 # original id/wav_file/callee/heard/caller -- added for the Yealink detail
