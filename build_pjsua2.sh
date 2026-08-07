@@ -23,6 +23,12 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
+if python3 -c "import pjsua2" >/dev/null 2>&1; then
+  echo "pjsua2 already importable under system python3 -- nothing to do."
+  echo "(delete $SRC_DIR and re-run to force a rebuild, e.g. after a pjproject version bump)"
+  exit 0
+fi
+
 echo "== Checking build dependencies =="
 REQUIRED_PKGS=(curl swig libssl-dev libasound2-dev build-essential python3-dev pkg-config)
 MISSING_PKGS=()

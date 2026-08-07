@@ -57,6 +57,14 @@ pip3 install --break-system-packages -q \
   fastapi "uvicorn[standard]" psycopg2-binary itsdangerous python-multipart python-dotenv requests \
   faster-whisper pywebpush "pyjwt[crypto]"
 
+echo "== Building/installing pjsua2 (needed for phone-call/playback -- dial_and_play.py) =="
+# No working prebuilt wheel exists (see build_pjsua2.sh's own comment) --
+# this builds pjproject from source, but only the first time this runs on a
+# given host: build_pjsua2.sh checks whether pjsua2 already imports and
+# no-ops instantly if so, so re-running install.sh (e.g. via update.sh)
+# doesn't pay the ~5-10 minute build cost again.
+"$APP_DIR/build_pjsua2.sh"
+
 echo "== Setting up .env =="
 if [ -f "$APP_DIR/.env" ]; then
   echo "$APP_DIR/.env already exists — leaving it alone."
@@ -110,7 +118,7 @@ LOGIN_LOCKOUT_MINUTES=15
 YEALINK_TOKEN_MAX_AGE_SECONDS=300
 YEALINK_TIME_ZONE=America/Vancouver
 
-# --- PJSUA2 phone playback (needs build_pjsua2.sh -- see DEPLOY.md 2.5) --
+# --- PJSUA2 phone playback (build_pjsua2.sh already ran above -- see DEPLOY.md 2.5) --
 # Leave unset to disable the phone-call/playback buttons. Extension creds
 # from the 3CX admin console (Extensions -> the extension -> Generic/SIP).
 #PBX_HOST=127.0.0.1

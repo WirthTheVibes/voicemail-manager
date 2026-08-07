@@ -112,26 +112,27 @@ systemctl status vm-manager-scheduler.service
 journalctl -u vm-manager-scheduler.service -n 50 -f
 ```
 
-## 2.5 If you need dial_and_play.py (PJSUA2) on the new server
+## 2.5 PJSUA2 (needed for dial_and_play.py / phone call-playback)
 
-`dial_and_play.py` isn't installed by `install.sh` — it needs `pjsua2`, which
-has no working prebuilt PyPI wheel (see the comment at the top of
-`build_pjsua2.sh`). Run it once per server:
+`install.sh` now calls `build_pjsua2.sh` automatically — no separate step.
+`pjsua2` has no working prebuilt PyPI wheel (see the comment at the top of
+`build_pjsua2.sh`), so the first `install.sh` run on a given host builds
+pjproject from source (~5-10 minutes); every run after that (including via
+`update.sh`) is near-instant, since `build_pjsua2.sh` checks whether
+`pjsua2` already imports and no-ops if so. Delete `/usr/local/src/pjproject`
+and re-run to force a rebuild (e.g. after bumping `PJPROJECT_VERSION`).
 
-```bash
-sudo ./build_pjsua2.sh
-```
+The build itself doesn't touch `app/config.py` or anything the running
+service depends on — outbound-call/playback stays inactive until you
+actually fill in the `.env` block below, so this is safe even on servers
+that will never use that feature.
 
-This builds pjproject from source and installs `pjsua2` into the system
-python3 (~5-10 minutes). It's independent of `install.sh` and doesn't touch
-`app/config.py` or anything the running service depends on — safe to skip
-entirely if this server doesn't need outbound-call/playback functionality.
-
-Then append a config block to `.env` (see the bottom of this server's `.env`
-for the exact format) with **that server's own** extension credentials from
-the 3CX admin console (Extensions → the extension → Generic/SIP tab) — don't
-copy this server's `EXTENSION`/`AUTH_ID`/`PASSWORD` values over, they're
-specific to this PBX's extension 998.
+To actually enable it, append a config block to `.env` (see the bottom of
+this server's `.env` for the exact format) with **that server's own**
+extension credentials from the 3CX admin console (Extensions → the
+extension → Generic/SIP tab) — don't copy this server's
+`EXTENSION`/`AUTH_ID`/`PASSWORD` values over, they're specific to this
+PBX's extension 998.
 
 ## 3. Finish the one thing the script can't safely automate
 
