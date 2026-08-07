@@ -13,13 +13,14 @@ import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from . import config, threecx_db
+from . import app_db, config, threecx_db
 
-# TODO(branding): hardcoded placeholder. Replace with a DB-backed setting
-# (same pattern as app_db.get_transcription_settings) once that's wired up,
-# so each deployment can set its own company name from the admin UI instead
-# of editing source.
-BRAND_NAME = "Your Phone System"
+
+def _brand_name() -> str:
+    """Read fresh on every send (not cached at import time) so an admin's
+    edit in Settings > General takes effect on the next voicemail without a
+    restart -- same as transcription/notification settings."""
+    return app_db.get_general_settings()["brand_name"]
 
 # Same packed "YYYYMMDDHHMMSS.ss" (UTC) format as s_voicemail.created_time
 # elsewhere -- see routes/yealink.py's _fmt_time docstring for the source
@@ -253,7 +254,7 @@ def build_digest(recipient_extension: str, mailbox_messages: dict[str, list[dict
         plural="" if total == 1 else "s",
         recipient_name=html.escape(recipient_name),
         sections=sections,
-        brand_name=html.escape(BRAND_NAME),
+        brand_name=html.escape(_brand_name()),
     )
     subject = f"[ {total} ] unread voicemail{'' if total == 1 else 's'} - Voicemail Manager"
     return subject, body
@@ -309,7 +310,7 @@ def build(message: dict) -> tuple[str, str]:
         time_display=html.escape(time_display),
         transcription=html.escape(transcription),
         listen_url=listen_url,
-        brand_name=html.escape(BRAND_NAME),
+        brand_name=html.escape(_brand_name()),
     )
     subject = f"New Voicemail - {caller_display} - {format_phone(did)}"
     return subject, body

@@ -110,7 +110,8 @@ function parseRoute(pathname) {
   if (parts[0] === "settings") {
     if (parts[1] === "users" && parts[2]) return { view: "settings", tab: "users", selected: parts[2] };
     if (parts[1] === "departments" && parts[2]) return { view: "settings", tab: "departments", selected: parts[2] };
-    return { view: "settings", tab: "users", selected: null };
+    if (parts[1]) return { view: "settings", tab: parts[1], selected: null };
+    return { view: "settings", tab: "general", selected: null };
   }
   if (parts[0]) {
     const extension = parts[0] === "all" ? ALL_MAILBOXES : parts[0];
@@ -1678,7 +1679,7 @@ function closeSettingsOverlay() {
 
 el("settings-btn").addEventListener("click", () => {
   setUrl(SETTINGS_PATH);
-  openSettingsOverlay("users", null);
+  openSettingsOverlay("general", null);
 });
 el("settings-close").addEventListener("click", () => {
   setUrl(mailboxPath(state.currentExtension));
@@ -1935,17 +1936,89 @@ document.addEventListener("click", (e) => {
 // `initialTab`/`initialSelected` reproduce a deep link like
 // /app/settings/users/205 -- opening straight to the Users tab with that
 // user's detail pane already showing, as if it had just been clicked.
-async function renderSettings(initialTab = "users", initialSelected = null) {
+async function renderSettings(initialTab = "general", initialSelected = null) {
   const body = el("settings-body");
   body.innerHTML = `
     <div class="settings-tabs">
+      <button class="tab-btn" type="button" data-tab="general">General</button>
       <button class="tab-btn" type="button" data-tab="users">Users</button>
       <button class="tab-btn" type="button" data-tab="departments">Departments</button>
       <button class="tab-btn" type="button" data-tab="transcription">Transcription</button>
       <button class="tab-btn" type="button" data-tab="notifications">Notifications</button>
     </div>
 
-    <div class="tab-panel" id="tab-users">
+    <div class="tab-panel" id="tab-general">
+      <div class="admin-columns">
+        <div class="admin-detail-col" style="max-width:480px;">
+          <h3 style="margin:0 0 var(--space-2) 0;">Branding</h3>
+          <div class="field">
+            <label class="detail-section-heading">Company / brand name</label>
+            <input class="input" id="general-brand-name-input" placeholder="Your Phone System">
+            <div class="share-hint">Shown in notification emails, e.g. "This notification was sent from &lt;name&gt; Voicemail Manager."</div>
+          </div>
+          <button class="btn btn-primary" id="general-save-btn" type="button" style="margin-top:var(--space-3);">Save</button>
+          <div class="share-hint" id="general-save-status"></div>
+
+          <h3 style="margin:var(--space-5) 0 var(--space-2) 0;border-top:1px solid var(--border-color, #d7d3d3);padding-top:var(--space-4);">Phone (PJSUA playback)</h3>
+          <div class="field">
+            <label class="detail-section-heading">PBX host</label>
+            <input class="input" id="phone-host-input" placeholder="127.0.0.1">
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">PBX domain</label>
+            <input class="input" id="phone-domain-input" placeholder="example.3cx.ca">
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Port</label>
+            <input class="input" type="number" id="phone-port-input" placeholder="5060">
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Transport</label>
+            <select class="input" id="phone-transport-select">
+              <option value="udp">UDP</option>
+              <option value="tcp">TCP</option>
+              <option value="tls">TLS</option>
+            </select>
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Extension</label>
+            <input class="input" id="phone-extension-input" placeholder="998">
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Auth ID</label>
+            <input class="input" id="phone-auth-id-input">
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Password</label>
+            <input class="input" type="password" id="phone-password-input" autocomplete="new-password">
+            <div class="share-hint" id="phone-password-hint"></div>
+          </div>
+          <div class="share-hint" style="margin-top:var(--space-3);">Changes take effect after the vm-manager service is next restarted.</div>
+          <button class="btn btn-primary" id="phone-save-btn" type="button" style="margin-top:var(--space-3);">Save</button>
+          <div class="share-hint" id="phone-save-status"></div>
+
+          <h3 style="margin:var(--space-5) 0 var(--space-2) 0;border-top:1px solid var(--border-color, #d7d3d3);padding-top:var(--space-4);">Sign-in (Microsoft Entra ID)</h3>
+          <div class="field">
+            <label class="detail-section-heading">Tenant ID</label>
+            <input class="input" id="signin-tenant-input">
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Client ID</label>
+            <input class="input" id="signin-client-input">
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Override emails (comma-separated)</label>
+            <input class="input" id="signin-override-input">
+            <div class="share-hint">Shared accounts (e.g. several admins) that all sign in as the management extension instead of matching their own mailbox.</div>
+          </div>
+          <div class="share-hint" style="margin-top:var(--space-3);">Changes take effect after the vm-manager service is next restarted.</div>
+          <button class="btn btn-primary" id="signin-save-btn" type="button" style="margin-top:var(--space-3);">Save</button>
+          <div class="share-hint" id="signin-save-status"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="tab-panel hidden" id="tab-users">
       <div class="admin-columns">
         <div class="admin-list-col">
           <div class="sidebar-search-row">
@@ -2008,6 +2081,43 @@ async function renderSettings(initialTab = "users", initialSelected = null) {
           </div>
           <button class="btn btn-primary" id="transcription-save-btn" type="button" style="margin-top:var(--space-3);">Save</button>
           <div class="share-hint" id="transcription-save-status"></div>
+
+          <h3 style="margin:var(--space-5) 0 var(--space-2) 0;border-top:1px solid var(--border-color, #d7d3d3);padding-top:var(--space-4);">Advanced (engine tuning)</h3>
+          <div class="field">
+            <label class="detail-section-heading">Local model size</label>
+            <select class="input" id="whisper-model-size-select">
+              <option value="tiny">tiny (~75MB, fastest)</option>
+              <option value="base">base</option>
+              <option value="small">small</option>
+              <option value="medium">medium</option>
+              <option value="large-v3">large-v3 (most accurate, slowest)</option>
+            </select>
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Local compute type</label>
+            <select class="input" id="whisper-compute-type-select">
+              <option value="int8">int8</option>
+              <option value="int8_float16">int8_float16</option>
+              <option value="float16">float16</option>
+              <option value="float32">float32</option>
+            </select>
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Local CPU threads</label>
+            <input class="input" type="number" id="whisper-cpu-threads-input" min="1">
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Local memory limit (MB)</label>
+            <input class="input" type="number" id="whisper-memory-limit-input" min="128">
+            <div class="share-hint">Local transcription is killed and reported as failed if it exceeds this. Requires a restart to take effect.</div>
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">OpenAI model</label>
+            <input class="input" id="whisper-openai-model-input" placeholder="gpt-4o-transcribe">
+            <div class="share-hint">Requires a restart to take effect.</div>
+          </div>
+          <button class="btn btn-primary" id="whisper-save-btn" type="button" style="margin-top:var(--space-3);">Save</button>
+          <div class="share-hint" id="whisper-save-status"></div>
         </div>
       </div>
     </div>
@@ -2017,7 +2127,7 @@ async function renderSettings(initialTab = "users", initialSelected = null) {
         <div class="admin-detail-col" style="max-width:480px;">
           <label class="checkbox-row">
             <input type="checkbox" id="notify-smtp-checkbox">
-            Email staff when a new voicemail arrives
+            Email extensions when a new voicemail arrives
           </label>
           <div class="share-hint" id="notify-smtp-hint"></div>
           <label class="checkbox-row" style="margin-top:var(--space-3);">
@@ -2029,6 +2139,36 @@ async function renderSettings(initialTab = "users", initialSelected = null) {
           </div>
           <button class="btn btn-primary" id="notify-save-btn" type="button" style="margin-top:var(--space-3);">Save</button>
           <div class="share-hint" id="notify-save-status"></div>
+
+          <h3 style="margin:var(--space-5) 0 var(--space-2) 0;border-top:1px solid var(--border-color, #d7d3d3);padding-top:var(--space-4);">SMTP connection</h3>
+          <div class="field">
+            <label class="detail-section-heading">Host</label>
+            <input class="input" id="smtp-host-input" placeholder="smtp.office365.com">
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Port</label>
+            <input class="input" type="number" id="smtp-port-input" placeholder="587">
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Username</label>
+            <input class="input" id="smtp-username-input">
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">Password</label>
+            <input class="input" type="password" id="smtp-password-input" autocomplete="new-password">
+            <div class="share-hint" id="smtp-password-hint"></div>
+          </div>
+          <div class="field" style="margin-top:var(--space-3);">
+            <label class="detail-section-heading">From address</label>
+            <input class="input" id="smtp-from-input">
+          </div>
+          <label class="checkbox-row" style="margin-top:var(--space-3);">
+            <input type="checkbox" id="smtp-use-tls-checkbox">
+            Use TLS
+          </label>
+          <div class="share-hint" style="margin-top:var(--space-3);">Changes take effect after the vm-manager service is next restarted.</div>
+          <button class="btn btn-primary" id="smtp-save-btn" type="button" style="margin-top:var(--space-3);">Save</button>
+          <div class="share-hint" id="smtp-save-status"></div>
         </div>
       </div>
     </div>
@@ -2051,6 +2191,7 @@ async function renderSettings(initialTab = "users", initialSelected = null) {
 
   const extensions = await api("/api/admin/extensions");
   const departments = await api("/api/admin/departments");
+  await renderGeneralTab();
   await renderUsersTab(extensions, departments);
   await renderDepartmentsTab(extensions, departments);
   await renderTranscriptionTab();
@@ -2073,6 +2214,141 @@ async function renderSettings(initialTab = "users", initialSelected = null) {
       openErrorModal("Not Found", "HTTP 404 — That department doesn't exist.");
     }
   }
+}
+
+// --- General tab: white-label branding -----------------------------------
+async function renderGeneralTab() {
+  const settings = await api("/api/admin/general-settings");
+
+  const brandInput = el("general-brand-name-input");
+  const saveBtn = el("general-save-btn");
+  const saveStatus = el("general-save-status");
+
+  brandInput.value = settings.brand_name;
+
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    saveStatus.textContent = "Saving…";
+    try {
+      const updated = await api("/api/admin/general-settings", {
+        method: "PUT",
+        body: JSON.stringify({ brand_name: brandInput.value }),
+      });
+      brandInput.value = updated.brand_name;
+      saveStatus.textContent = "Saved.";
+    } catch (err) {
+      saveStatus.textContent = "";
+      showApiErrorModal(err);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  await renderPhoneSection();
+  await renderSignInSection();
+}
+
+// --- General tab: Phone (PJSUA/SIP connection) ---------------------------
+async function renderPhoneSection() {
+  const settings = await api("/api/admin/phone-settings");
+
+  const hostInput = el("phone-host-input");
+  const domainInput = el("phone-domain-input");
+  const portInput = el("phone-port-input");
+  const transportSelect = el("phone-transport-select");
+  const extensionInput = el("phone-extension-input");
+  const authIdInput = el("phone-auth-id-input");
+  const passwordInput = el("phone-password-input");
+  const passwordHint = el("phone-password-hint");
+  const saveBtn = el("phone-save-btn");
+  const saveStatus = el("phone-save-status");
+
+  hostInput.value = settings.pbx_host;
+  domainInput.value = settings.pbx_domain;
+  portInput.value = settings.pbx_port;
+  transportSelect.value = settings.pbx_transport;
+  extensionInput.value = settings.extension;
+  authIdInput.value = settings.auth_id;
+  passwordInput.value = "";
+  passwordInput.placeholder = settings.password_set ? "••••••••" : "";
+  passwordHint.textContent = settings.password_set
+    ? "Leave blank to keep the current password."
+    : "Not set — phone playback stays unavailable until this is filled in.";
+
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    saveStatus.textContent = "Saving…";
+    try {
+      const updated = await api("/api/admin/phone-settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          pbx_host: hostInput.value,
+          pbx_domain: domainInput.value,
+          pbx_port: parseInt(portInput.value, 10) || 5060,
+          pbx_transport: transportSelect.value,
+          extension: extensionInput.value,
+          auth_id: authIdInput.value,
+          password: passwordInput.value || null,
+        }),
+      });
+      hostInput.value = updated.pbx_host;
+      domainInput.value = updated.pbx_domain;
+      portInput.value = updated.pbx_port;
+      transportSelect.value = updated.pbx_transport;
+      extensionInput.value = updated.extension;
+      authIdInput.value = updated.auth_id;
+      passwordInput.value = "";
+      passwordInput.placeholder = updated.password_set ? "••••••••" : "";
+      passwordHint.textContent = updated.password_set
+        ? "Leave blank to keep the current password."
+        : "Not set — phone playback stays unavailable until this is filled in.";
+      saveStatus.textContent = "Saved. Restart the vm-manager service for this to take effect.";
+    } catch (err) {
+      saveStatus.textContent = "";
+      showApiErrorModal(err);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+}
+
+// --- General tab: Sign-in (Microsoft Entra ID) ----------------------------
+async function renderSignInSection() {
+  const settings = await api("/api/admin/ms-auth-settings");
+
+  const tenantInput = el("signin-tenant-input");
+  const clientInput = el("signin-client-input");
+  const overrideInput = el("signin-override-input");
+  const saveBtn = el("signin-save-btn");
+  const saveStatus = el("signin-save-status");
+
+  tenantInput.value = settings.tenant_id;
+  clientInput.value = settings.client_id;
+  overrideInput.value = settings.override_emails;
+
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    saveStatus.textContent = "Saving…";
+    try {
+      const updated = await api("/api/admin/ms-auth-settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          tenant_id: tenantInput.value,
+          client_id: clientInput.value,
+          override_emails: overrideInput.value,
+        }),
+      });
+      tenantInput.value = updated.tenant_id;
+      clientInput.value = updated.client_id;
+      overrideInput.value = updated.override_emails;
+      saveStatus.textContent = "Saved. Restart the vm-manager service for this to take effect.";
+    } catch (err) {
+      saveStatus.textContent = "";
+      showApiErrorModal(err);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
 }
 
 // --- Transcription tab: enable/disable + engine choice ------------------------
@@ -2112,6 +2388,55 @@ async function renderTranscriptionTab() {
       saveBtn.disabled = false;
     }
   });
+
+  await renderWhisperSection();
+}
+
+// --- Transcription tab: Whisper/OpenAI engine tuning ----------------------
+async function renderWhisperSection() {
+  const settings = await api("/api/admin/whisper-settings");
+
+  const modelSizeSelect = el("whisper-model-size-select");
+  const computeTypeSelect = el("whisper-compute-type-select");
+  const cpuThreadsInput = el("whisper-cpu-threads-input");
+  const memoryLimitInput = el("whisper-memory-limit-input");
+  const openaiModelInput = el("whisper-openai-model-input");
+  const saveBtn = el("whisper-save-btn");
+  const saveStatus = el("whisper-save-status");
+
+  modelSizeSelect.value = settings.whisper_model_size;
+  computeTypeSelect.value = settings.whisper_compute_type;
+  cpuThreadsInput.value = settings.whisper_cpu_threads;
+  memoryLimitInput.value = settings.whisper_memory_limit_mb;
+  openaiModelInput.value = settings.openai_transcribe_model;
+
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    saveStatus.textContent = "Saving…";
+    try {
+      const updated = await api("/api/admin/whisper-settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          whisper_model_size: modelSizeSelect.value,
+          whisper_compute_type: computeTypeSelect.value,
+          whisper_cpu_threads: parseInt(cpuThreadsInput.value, 10) || 2,
+          whisper_memory_limit_mb: parseInt(memoryLimitInput.value, 10) || 1024,
+          openai_transcribe_model: openaiModelInput.value,
+        }),
+      });
+      modelSizeSelect.value = updated.whisper_model_size;
+      computeTypeSelect.value = updated.whisper_compute_type;
+      cpuThreadsInput.value = updated.whisper_cpu_threads;
+      memoryLimitInput.value = updated.whisper_memory_limit_mb;
+      openaiModelInput.value = updated.openai_transcribe_model;
+      saveStatus.textContent = "Saved. Model size/compute type/threads apply to the next transcription; memory limit and OpenAI model need a restart.";
+    } catch (err) {
+      saveStatus.textContent = "";
+      showApiErrorModal(err);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
 }
 
 // --- Notifications tab: SMTP / push, enabled independently -------------------
@@ -2132,7 +2457,7 @@ async function renderNotificationsTab() {
 
   smtpHint.textContent = settings.smtp_configured
     ? "Sent to each mailbox's email on file (from 3CX, or overridden per-user in the Users tab)."
-    : "Unavailable — set SMTP_HOST/SMTP_FROM in this server's .env to enable email notifications.";
+    : "Unavailable — fill in the SMTP connection settings below to enable email notifications.";
   pwaHint.textContent = settings.pwa_configured
     ? "Staff also need to click the bell icon in the nav bar on each device they want notified on."
     : "Unavailable — set VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY/VAPID_CONTACT_EMAIL in this server's .env to enable push.";
@@ -2148,6 +2473,68 @@ async function renderNotificationsTab() {
       smtpCheckbox.checked = updated.smtp_enabled;
       pwaCheckbox.checked = updated.pwa_enabled;
       saveStatus.textContent = "Saved.";
+    } catch (err) {
+      saveStatus.textContent = "";
+      showApiErrorModal(err);
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  await renderSmtpSection();
+}
+
+// --- Notifications tab: SMTP connection details ---------------------------
+async function renderSmtpSection() {
+  const settings = await api("/api/admin/smtp-settings");
+
+  const hostInput = el("smtp-host-input");
+  const portInput = el("smtp-port-input");
+  const usernameInput = el("smtp-username-input");
+  const passwordInput = el("smtp-password-input");
+  const passwordHint = el("smtp-password-hint");
+  const fromInput = el("smtp-from-input");
+  const useTlsCheckbox = el("smtp-use-tls-checkbox");
+  const saveBtn = el("smtp-save-btn");
+  const saveStatus = el("smtp-save-status");
+
+  hostInput.value = settings.smtp_host;
+  portInput.value = settings.smtp_port;
+  usernameInput.value = settings.smtp_username;
+  passwordInput.value = "";
+  passwordInput.placeholder = settings.password_set ? "••••••••" : "";
+  passwordHint.textContent = settings.password_set
+    ? "Leave blank to keep the current password."
+    : "Not set — email notifications stay unavailable until this is filled in.";
+  fromInput.value = settings.smtp_from;
+  useTlsCheckbox.checked = settings.smtp_use_tls;
+
+  saveBtn.addEventListener("click", async () => {
+    saveBtn.disabled = true;
+    saveStatus.textContent = "Saving…";
+    try {
+      const updated = await api("/api/admin/smtp-settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          smtp_host: hostInput.value,
+          smtp_port: parseInt(portInput.value, 10) || 587,
+          smtp_username: usernameInput.value,
+          smtp_from: fromInput.value,
+          smtp_use_tls: useTlsCheckbox.checked,
+          smtp_password: passwordInput.value || null,
+        }),
+      });
+      hostInput.value = updated.smtp_host;
+      portInput.value = updated.smtp_port;
+      usernameInput.value = updated.smtp_username;
+      passwordInput.value = "";
+      passwordInput.placeholder = updated.password_set ? "••••••••" : "";
+      passwordHint.textContent = updated.password_set
+        ? "Leave blank to keep the current password."
+        : "Not set — email notifications stay unavailable until this is filled in.";
+      fromInput.value = updated.smtp_from;
+      useTlsCheckbox.checked = updated.smtp_use_tls;
+      saveStatus.textContent = "Saved. Restart the vm-manager service for this to take effect.";
     } catch (err) {
       saveStatus.textContent = "";
       showApiErrorModal(err);

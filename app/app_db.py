@@ -9,7 +9,7 @@ import time
 from collections import defaultdict
 from contextlib import contextmanager
 
-from . import config
+from . import app_setting_store, config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS user_mailbox_grant (
@@ -694,6 +694,126 @@ def set_transcription_settings(enabled: bool, engine: str):
             "UPDATE transcription_setting SET enabled = ?, engine = ? WHERE id = 1",
             (1 if enabled else 0, engine),
         )
+
+
+# --- Settings > General tab (white-label branding) -----------------------
+# Lives in app_setting (see app_setting_store.py) rather than its own
+# CHECK(id=1) table like transcription_setting/notification_setting above --
+# it's the same store config.py's env-migrated settings use, and unlike
+# those two this is a single free-text value with no enable/disable toggle
+# to bundle it with.
+_DEFAULT_BRAND_NAME = "Your Phone System"
+
+
+def get_general_settings() -> dict:
+    return {"brand_name": app_setting_store.get("brand_name", _DEFAULT_BRAND_NAME)}
+
+
+def set_general_settings(brand_name: str):
+    app_setting_store.set("brand_name", brand_name)
+
+
+# --- Settings > Phone tab (PJSUA/SIP connection) --------------------------
+# Unlike transcription_setting/notification_setting, these aren't read fresh
+# per-call -- phone_service registers a long-lived pjsua2 account once at
+# process start (see config.py's PHONE_* constants), so a saved change here
+# only takes effect after the vm-manager service is next restarted.
+def get_phone_settings() -> dict:
+    return {
+        "pbx_host": app_setting_store.get("pbx_host", ""),
+        "pbx_domain": app_setting_store.get("pbx_domain", ""),
+        "pbx_port": int(app_setting_store.get("pbx_port", 5060)),
+        "pbx_transport": app_setting_store.get("pbx_transport", "udp"),
+        "extension": app_setting_store.get("pjsua_extension", ""),
+        "auth_id": app_setting_store.get("pjsua_auth_id", ""),
+        "password_set": app_setting_store.get("pjsua_password") is not None,
+    }
+
+
+def set_phone_settings(pbx_host, pbx_domain, pbx_port, pbx_transport, extension, auth_id, password=None):
+    app_setting_store.set("pbx_host", pbx_host)
+    app_setting_store.set("pbx_domain", pbx_domain)
+    app_setting_store.set("pbx_port", str(pbx_port))
+    app_setting_store.set("pbx_transport", pbx_transport)
+    app_setting_store.set("pjsua_extension", extension)
+    app_setting_store.set("pjsua_auth_id", auth_id, encrypted=True)
+    # Blank password from the form means "leave it as-is" -- the field is
+    # never populated with the real value (see password_set above), so an
+    # empty submit can't mean "the admin wants to clear it."
+    if password:
+        app_setting_store.set("pjsua_password", password, encrypted=True)
+
+
+# --- Settings > Sign-in tab (Microsoft Entra ID) --------------------------
+# Same restart caveat as get_phone_settings above -- ms_auth.py builds its
+# JWKS client once at process start.
+def get_ms_auth_settings() -> dict:
+    return {
+        "tenant_id": app_setting_store.get("ms_auth_tenant_id", ""),
+        "client_id": app_setting_store.get("ms_auth_client_id", ""),
+        "override_emails": app_setting_store.get("ms_auth_override_emails", ""),
+    }
+
+
+def set_ms_auth_settings(tenant_id: str, client_id: str, override_emails: str):
+    app_setting_store.set("ms_auth_tenant_id", tenant_id)
+    app_setting_store.set("ms_auth_client_id", client_id)
+    app_setting_store.set("ms_auth_override_emails", override_emails)
+
+
+# --- Settings > Notifications tab: SMTP connection details ---------------
+# Same restart caveat -- notifications.py reads config.SMTP_* constants set
+# once at process start, unlike the smtp_enabled/pwa_enabled toggles above.
+def get_smtp_settings() -> dict:
+    return {
+        "smtp_host": app_setting_store.get("smtp_host", ""),
+        "smtp_port": int(app_setting_store.get("smtp_port", 587)),
+        "smtp_username": app_setting_store.get("smtp_username", ""),
+        "smtp_from": app_setting_store.get("smtp_from", ""),
+        "smtp_use_tls": str(app_setting_store.get("smtp_use_tls", "true")).lower() != "false",
+        "password_set": app_setting_store.get("smtp_password") is not None,
+    }
+
+
+def set_smtp_settings(smtp_host, smtp_port, smtp_username, smtp_from, smtp_use_tls, smtp_password=None):
+    app_setting_store.set("smtp_host", smtp_host)
+    app_setting_store.set("smtp_port", str(smtp_port))
+    app_setting_store.set("smtp_username", smtp_username)
+    app_setting_store.set("smtp_from", smtp_from)
+    app_setting_store.set("smtp_use_tls", "true" if smtp_use_tls else "false")
+    if smtp_password:
+        app_setting_store.set("smtp_password", smtp_password, encrypted=True)
+
+
+# --- Settings > Transcription tab: Whisper/OpenAI tuning ------------------
+# Unlike enabled/engine above, WHISPER_MODEL_SIZE/COMPUTE_TYPE/CPU_THREADS
+# take effect on the very next transcription -- transcribe_subprocess.py is
+# spawned fresh per message and re-reads these from the DB every time (see
+# its module docstring). WHISPER_MEMORY_LIMIT_MB and OPENAI_TRANSCRIBE_MODEL
+# are read in the long-lived main process instead, so those two still need a
+# restart.
+def get_whisper_settings() -> dict:
+    return {
+        "whisper_model_size": app_setting_store.get("whisper_model_size", "tiny"),
+        "whisper_compute_type": app_setting_store.get("whisper_compute_type", "int8"),
+        "whisper_cpu_threads": int(app_setting_store.get("whisper_cpu_threads", 2)),
+        "whisper_memory_limit_mb": int(app_setting_store.get("whisper_memory_limit_mb", 1024)),
+        "openai_transcribe_model": app_setting_store.get("openai_transcribe_model", "gpt-4o-transcribe"),
+    }
+
+
+def set_whisper_settings(
+    whisper_model_size: str,
+    whisper_compute_type: str,
+    whisper_cpu_threads: int,
+    whisper_memory_limit_mb: int,
+    openai_transcribe_model: str,
+):
+    app_setting_store.set("whisper_model_size", whisper_model_size)
+    app_setting_store.set("whisper_compute_type", whisper_compute_type)
+    app_setting_store.set("whisper_cpu_threads", str(whisper_cpu_threads))
+    app_setting_store.set("whisper_memory_limit_mb", str(whisper_memory_limit_mb))
+    app_setting_store.set("openai_transcribe_model", openai_transcribe_model)
 
 
 # --- transcription word timestamps (karaoke-style transcript) -----------------

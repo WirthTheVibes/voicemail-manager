@@ -3,9 +3,25 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from . import app_setting_store as _settings
+
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 APP_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _migrated(key: str, env_name: str, default=None, encrypted: bool = False):
+    """Reads a setting that used to be .env-only from the DB-backed
+    app_setting store instead. On first boot after this key was introduced,
+    seeds the DB from whatever .env still holds (so upgrading doesn't lose
+    an existing deployment's value) -- every boot after that, the DB alone
+    is authoritative and the .env value (if anyone leaves it there) is
+    ignored. See app_setting_store.py's module docstring for why this can't
+    just go through app_db.py."""
+    env_val = os.environ.get(env_name)
+    if env_val is not None:
+        _settings.seed_if_absent(key, env_val, encrypted=encrypted)
+    return _settings.get(key, default)
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 SECRET_KEY = os.environ["SECRET_KEY"]
@@ -27,13 +43,15 @@ THREECX_ADMIN_PASSWORD = os.environ["THREECX_ADMIN_PASSWORD"]
 # PASSWORD aren't set, the phone-call button just stays unavailable (503)
 # rather than blocking app startup, since voicemail viewing doesn't depend
 # on it.
-PHONE_HOST = os.environ.get("PBX_HOST")
-PHONE_DOMAIN = os.environ.get("PBX_DOMAIN", PHONE_HOST)
-PHONE_TRANSPORT = os.environ.get("PBX_TRANSPORT", "udp").lower()
-PHONE_PORT = int(os.environ.get("PBX_PORT", 5061 if PHONE_TRANSPORT == "tls" else 5060))
-PHONE_EXTENSION = os.environ.get("EXTENSION")
-PHONE_AUTH_ID = os.environ.get("AUTH_ID", PHONE_EXTENSION)
-PHONE_PASSWORD = os.environ.get("PASSWORD")
+PHONE_HOST = _migrated("pbx_host", "PBX_HOST")
+PHONE_DOMAIN = _migrated("pbx_domain", "PBX_DOMAIN", PHONE_HOST)
+PHONE_TRANSPORT = _migrated("pbx_transport", "PBX_TRANSPORT", "udp").lower()
+PHONE_PORT = int(_migrated("pbx_port", "PBX_PORT", 5061 if PHONE_TRANSPORT == "tls" else 5060))
+PHONE_EXTENSION = _migrated("pjsua_extension", "EXTENSION")
+# AUTH_ID/PASSWORD are the actual SIP login credentials -- encrypted at rest
+# (see app_setting_store.py), unlike the connection details above.
+PHONE_AUTH_ID = _migrated("pjsua_auth_id", "AUTH_ID", PHONE_EXTENSION, encrypted=True)
+PHONE_PASSWORD = _migrated("pjsua_password", "PASSWORD", encrypted=True)
 PHONE_ENABLED = bool(PHONE_HOST and PHONE_EXTENSION and PHONE_PASSWORD)
 
 # --- Voicemail transcription --------------------------------------------
@@ -47,19 +65,19 @@ PHONE_ENABLED = bool(PHONE_HOST and PHONE_EXTENSION and PHONE_PASSWORD)
 # WHISPER_MODEL_CACHE_DIR defaults under this app's own directory (not
 # phonesystem's home, which is 3CX's own tree) so the ~500MB-1GB model
 # download is obviously this app's state -- same reasoning as APP_DB_PATH.
-WHISPER_MODEL_SIZE = os.environ.get("WHISPER_MODEL_SIZE", "tiny")
-WHISPER_COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
-WHISPER_CPU_THREADS = int(os.environ.get("WHISPER_CPU_THREADS", "2"))
+WHISPER_MODEL_SIZE = _migrated("whisper_model_size", "WHISPER_MODEL_SIZE", "tiny")
+WHISPER_COMPUTE_TYPE = _migrated("whisper_compute_type", "WHISPER_COMPUTE_TYPE", "int8")
+WHISPER_CPU_THREADS = int(_migrated("whisper_cpu_threads", "WHISPER_CPU_THREADS", "2"))
 WHISPER_MODEL_CACHE_DIR = Path(
     os.environ.get("WHISPER_MODEL_CACHE_DIR", str(Path(__file__).resolve().parent.parent / "models"))
 )
 # Local transcription runs in a subprocess specifically so this cap can be
 # enforced by polling that subprocess's own RSS and killing it -- see
 # transcription.py's module docstring for why (RLIMIT_AS doesn't work here).
-WHISPER_MEMORY_LIMIT_MB = int(os.environ.get("WHISPER_MEMORY_LIMIT_MB", "1024"))
+WHISPER_MEMORY_LIMIT_MB = int(_migrated("whisper_memory_limit_mb", "WHISPER_MEMORY_LIMIT_MB", "1024"))
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-OPENAI_TRANSCRIBE_MODEL = os.environ.get("OPENAI_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
+OPENAI_TRANSCRIBE_MODEL = _migrated("openai_transcribe_model", "OPENAI_TRANSCRIBE_MODEL", "gpt-4o-transcribe")
 
 # --- Voicemail watcher ---------------------------------------------------
 # Drives notifications + immediate transcription (see voicemail_watcher.py).
@@ -74,12 +92,13 @@ VM_WATCH_POLL_SECONDS = int(os.environ.get("VM_WATCH_POLL_SECONDS", "5"))
 # the Settings UI (app_db.get/set_notification_settings) -- everything
 # below is deployment-level config/secrets that stays in .env, same
 # reasoning as OPENAI_API_KEY above.
-SMTP_HOST = os.environ.get("SMTP_HOST")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
-SMTP_USERNAME = os.environ.get("SMTP_USERNAME")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
-SMTP_FROM = os.environ.get("SMTP_FROM", SMTP_USERNAME)
-SMTP_USE_TLS = os.environ.get("SMTP_USE_TLS", "true").lower() != "false"
+SMTP_HOST = _migrated("smtp_host", "SMTP_HOST")
+SMTP_PORT = int(_migrated("smtp_port", "SMTP_PORT", "587"))
+SMTP_USERNAME = _migrated("smtp_username", "SMTP_USERNAME")
+# The actual mailbox password -- encrypted at rest, unlike the rest of this block.
+SMTP_PASSWORD = _migrated("smtp_password", "SMTP_PASSWORD", encrypted=True)
+SMTP_FROM = _migrated("smtp_from", "SMTP_FROM", SMTP_USERNAME)
+SMTP_USE_TLS = str(_migrated("smtp_use_tls", "SMTP_USE_TLS", "true")).lower() != "false"
 SMTP_CONFIGURED = bool(SMTP_HOST and SMTP_FROM)
 
 # Web Push (PWA notifications). VAPID_CONTACT is the mailto: URL push
@@ -138,8 +157,8 @@ LOGIN_LOCKOUT_MINUTES = int(os.environ.get("LOGIN_LOCKOUT_MINUTES", 15))
 # resulting ID token; see ms_auth.py for how that token gets verified
 # (against Microsoft's own public JWKS, not a shared secret) and matched to
 # a 3CX extension via voicemail.email (see threecx_db.by_email).
-MS_AUTH_TENANT_ID = os.environ.get("MS_AUTH_TENANT_ID")
-MS_AUTH_CLIENT_ID = os.environ.get("MS_AUTH_CLIENT_ID")
+MS_AUTH_TENANT_ID = _migrated("ms_auth_tenant_id", "MS_AUTH_TENANT_ID")
+MS_AUTH_CLIENT_ID = _migrated("ms_auth_client_id", "MS_AUTH_CLIENT_ID")
 MS_AUTH_ENABLED = bool(MS_AUTH_TENANT_ID and MS_AUTH_CLIENT_ID)
 
 # PIN sign-in for the web UI is meant to go away once MS Auth above is live
@@ -158,7 +177,8 @@ PIN_LOGIN_ENABLED = os.environ.get("PIN_LOGIN_ENABLED", "false" if MS_AUTH_ENABL
 # Comma-separated, matched case-insensitively against the ID token's
 # preferred_username/upn/email claim.
 MS_AUTH_OVERRIDE_EMAILS = set(
-    e.strip().lower() for e in os.environ.get("MS_AUTH_OVERRIDE_EMAILS", "").split(",") if e.strip()
+    e.strip().lower() for e in (_migrated("ms_auth_override_emails", "MS_AUTH_OVERRIDE_EMAILS", "") or "").split(",")
+    if e.strip()
 )
 
 HOST = os.environ.get("HOST", "0.0.0.0")

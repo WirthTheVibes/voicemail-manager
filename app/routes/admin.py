@@ -188,6 +188,70 @@ def set_department_mailbox_members(
     }
 
 
+# --- Settings > General tab (white-label branding) -----------------------
+@router.get("/api/admin/general-settings")
+def get_general_settings(session: dict = Depends(require_admin)):
+    return app_db.get_general_settings()
+
+
+class GeneralSettingsRequest(BaseModel):
+    brand_name: str
+
+
+@router.put("/api/admin/general-settings")
+def set_general_settings(body: GeneralSettingsRequest, session: dict = Depends(require_admin)):
+    brand_name = body.brand_name.strip()
+    if not brand_name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="brand_name cannot be empty")
+    app_db.set_general_settings(brand_name)
+    return app_db.get_general_settings()
+
+
+# --- Settings > Phone tab (PJSUA/SIP connection) --------------------------
+@router.get("/api/admin/phone-settings")
+def get_phone_settings(session: dict = Depends(require_admin)):
+    return app_db.get_phone_settings()
+
+
+class PhoneSettingsRequest(BaseModel):
+    pbx_host: str
+    pbx_domain: str
+    pbx_port: int
+    pbx_transport: str
+    extension: str
+    auth_id: str
+    password: str | None = None
+
+
+@router.put("/api/admin/phone-settings")
+def set_phone_settings(body: PhoneSettingsRequest, session: dict = Depends(require_admin)):
+    if body.pbx_transport not in ("udp", "tcp", "tls"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="pbx_transport must be udp, tcp, or tls")
+    app_db.set_phone_settings(
+        body.pbx_host, body.pbx_domain, body.pbx_port, body.pbx_transport,
+        body.extension, body.auth_id, body.password or None,
+    )
+    return app_db.get_phone_settings()
+
+
+# --- Settings > Sign-in tab (Microsoft Entra ID) --------------------------
+@router.get("/api/admin/ms-auth-settings")
+def get_ms_auth_settings(session: dict = Depends(require_admin)):
+    return app_db.get_ms_auth_settings()
+
+
+class MsAuthSettingsRequest(BaseModel):
+    tenant_id: str
+    client_id: str
+    override_emails: str
+
+
+@router.put("/api/admin/ms-auth-settings")
+def set_ms_auth_settings(body: MsAuthSettingsRequest, session: dict = Depends(require_admin)):
+    app_db.set_ms_auth_settings(body.tenant_id, body.client_id, body.override_emails)
+    return app_db.get_ms_auth_settings()
+
+
 # --- Settings > Transcription tab ---------------------------------------------
 def _transcription_settings_response(settings: dict) -> dict:
     return {**settings, "openai_available": bool(config.OPENAI_API_KEY)}
@@ -214,6 +278,28 @@ def set_transcription_settings(body: TranscriptionSettingsRequest, session: dict
         )
     app_db.set_transcription_settings(body.enabled, body.engine)
     return _transcription_settings_response(app_db.get_transcription_settings())
+
+
+@router.get("/api/admin/whisper-settings")
+def get_whisper_settings(session: dict = Depends(require_admin)):
+    return app_db.get_whisper_settings()
+
+
+class WhisperSettingsRequest(BaseModel):
+    whisper_model_size: str
+    whisper_compute_type: str
+    whisper_cpu_threads: int
+    whisper_memory_limit_mb: int
+    openai_transcribe_model: str
+
+
+@router.put("/api/admin/whisper-settings")
+def set_whisper_settings(body: WhisperSettingsRequest, session: dict = Depends(require_admin)):
+    app_db.set_whisper_settings(
+        body.whisper_model_size, body.whisper_compute_type, body.whisper_cpu_threads,
+        body.whisper_memory_limit_mb, body.openai_transcribe_model,
+    )
+    return app_db.get_whisper_settings()
 
 
 # --- Settings > Notifications tab ----------------------------------------------
@@ -245,3 +331,26 @@ def set_notification_settings(body: NotificationSettingsRequest, session: dict =
         )
     app_db.set_notification_settings(body.smtp_enabled, body.pwa_enabled)
     return _notification_settings_response(app_db.get_notification_settings())
+
+
+@router.get("/api/admin/smtp-settings")
+def get_smtp_settings(session: dict = Depends(require_admin)):
+    return app_db.get_smtp_settings()
+
+
+class SmtpSettingsRequest(BaseModel):
+    smtp_host: str
+    smtp_port: int
+    smtp_username: str
+    smtp_from: str
+    smtp_use_tls: bool
+    smtp_password: str | None = None
+
+
+@router.put("/api/admin/smtp-settings")
+def set_smtp_settings(body: SmtpSettingsRequest, session: dict = Depends(require_admin)):
+    app_db.set_smtp_settings(
+        body.smtp_host, body.smtp_port, body.smtp_username, body.smtp_from,
+        body.smtp_use_tls, body.smtp_password or None,
+    )
+    return app_db.get_smtp_settings()
