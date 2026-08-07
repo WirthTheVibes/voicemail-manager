@@ -1,4 +1,4 @@
-.env
+*.env
 *.db
 *.db-journal
 models/
@@ -8,3 +8,4 @@ __pycache__/
 .github_token
 .deployed_version
 venv/
+folder_name/
