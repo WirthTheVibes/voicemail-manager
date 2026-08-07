@@ -66,8 +66,29 @@ echo "== Building/installing pjsua2 (needed for phone-call/playback -- dial_and_
 "$APP_DIR/build_pjsua2.sh"
 
 echo "== Setting up .env =="
+# ensure_env_key: appends a commented-out block for KEY to an *existing*
+# .env if that key (commented or not) isn't already present -- lets an
+# upgrade (update.sh re-running install.sh) pick up new optional settings
+# introduced since the host's .env was created, without touching anything
+# the host already has set. New keys go here, not just in the fresh-install
+# heredoc below, or upgraded hosts silently never learn they exist.
+ensure_env_key() {
+  local key="$1" block="$2"
+  if ! grep -qE "^#?${key}=" "$APP_DIR/.env" 2>/dev/null; then
+    printf '\n%s\n' "$block" >> "$APP_DIR/.env"
+    echo "Added ${key} to .env (new since this host's .env was created -- commented out, review/fill in as needed)."
+  fi
+}
+
 if [ -f "$APP_DIR/.env" ]; then
-  echo "$APP_DIR/.env already exists — leaving it alone."
+  echo "$APP_DIR/.env already exists — leaving existing values alone, checking for new keys."
+  ensure_env_key THREECX_ADMIN_TOTP_SECRET "$(cat <<'BLOCK'
+# Base32 TOTP secret if the admin extension above has 2FA enrolled in 3CX
+# (Admin console > your account > Security). Leave unset if it doesn't --
+# login then posts SecurityCode: "" as before. See threecx_notify.py.
+#THREECX_ADMIN_TOTP_SECRET=
+BLOCK
+)"
 else
   SECRET_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
   cat > "$APP_DIR/.env" <<EOF
@@ -89,6 +110,10 @@ APP_DB_PATH=${APP_DIR}/vm_manager.db
 THREECX_PBX_URL=
 THREECX_ADMIN_EXTENSION=
 THREECX_ADMIN_PASSWORD=
+# Base32 TOTP secret if the admin extension above has 2FA enrolled in 3CX
+# (Admin console > your account > Security). Leave unset if it doesn't --
+# login then posts SecurityCode: "" as before. See threecx_notify.py.
+#THREECX_ADMIN_TOTP_SECRET=
 
 # App only reachable via the nginx snippet install.sh installs (this port,
 # behind https://<host>/vm-manager/ -- see 60-vm-manager.conf). Only change
