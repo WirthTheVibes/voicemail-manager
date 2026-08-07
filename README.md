@@ -1,6 +1,6 @@
 # Voicemail Manager
 
-<img width="1912" height="914" alt="image" src="https://github.com/user-attachments/assets/1b2eeecf-7548-4c2d-97e3-707b54399e46" />
+<img width="1912" height="914" alt="image" src="https://github.com/user-attachments/assets/e5ca3395-ee17-459b-9ccb-106ec6f25340" />
 A vibecoded web app to manage 3CX Voicemail, improving on functionality within the pre-installed voicemail system, while also providing the backend to serve a Yealink XML App for visual voicemail.
 
 -------------------
