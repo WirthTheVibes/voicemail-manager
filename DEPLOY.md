@@ -8,27 +8,20 @@ the GitHub API using `curl`/`tar`/`rsync`, all stock on a Debian 3CX box.
 
 ## 1. Bootstrap a brand-new host (one-time, no git needed)
 
-A fresh host has nothing at `/opt/vm-manager` yet, so `update.sh` can't
-bootstrap itself. Manually copy just two files over first (scp, sftp,
-whatever's convenient):
+The repo (`WirthTheVibes/voicemail-manager`) is public, so no token is
+needed to read from it. A fresh host has nothing at `/opt/vm-manager` yet,
+so `update.sh` can't bootstrap itself — copy just that one file over first
+(scp, sftp, whatever's convenient):
 
 ```bash
 ssh root@<new-server> mkdir -p /opt/vm-manager
 scp /opt/vm-manager/update.sh root@<new-server>:/opt/vm-manager/
-scp /opt/vm-manager/.github_token root@<new-server>:/opt/vm-manager/   # see note below
 ```
-
-**Use a read-only token on target hosts, not this server's push token.**
-Create a separate fine-grained PAT on GitHub scoped to just this repo with
-`Contents: Read-only` (Settings → Developer settings → Fine-grained tokens).
-This server's own `.github_token` has `Contents: Read and write` because it
-needs to push — don't copy that one to other hosts.
 
 Then on the new host:
 
 ```bash
 ssh root@<new-server>
-chmod 600 /opt/vm-manager/.github_token
 cd /opt/vm-manager
 sudo ./update.sh
 ```
@@ -38,13 +31,17 @@ applies it, then runs `install.sh` itself — from here on the host is fully
 set up. Continue with "Finish the one thing the script can't safely
 automate" below.
 
+(If you ever point this at a private fork instead, drop a `.github_token`
+file — a fine-grained PAT scoped `Contents: Read-only` — next to
+`update.sh` before running it; the script picks it up automatically.)
+
 ## 2. What `install.sh` does (run automatically by `update.sh` above)
 
 This checks the new server actually looks like a 3CX box (the `phonesystem`
 OS user, Postgres peer auth, the voicemail audio path), installs the Python
 dependencies system-wide, generates a **fresh** `.env` with a new
 `SECRET_KEY`, sets ownership, installs+enables the systemd service, installs
-and enables `vm-manager-daily-digest.timer` (see below), installs an nginx
+and starts `vm-manager-scheduler.service` (see below), installs an nginx
 snippet at `/var/lib/3cxpbx/Bin/nginx/conf/snippets/60-vm-manager.conf`
 that reverse-proxies `https://<host>/vm-manager/` to the app on 3CX's own
 nginx, and installs+starts `sip-reject-watch.service` (mandatory — see
@@ -81,20 +78,35 @@ tcpdump -i <iface> -n "port 5060"           # during a real call — confirm you
 (which runs as `phonesystem`) read/write the query socket without either
 service running as root.
 
-**`vm-manager-daily-digest.timer`** runs `vm-manager-daily-digest.service`
-(a oneshot, `python3 -m app.daily_digest`) once a day at 07:00 server-local
-time. It emails one digest per mailbox that currently has unread voicemail —
-same SMTP config and recipient rules (`access.notification_recipients_for_mailbox`)
-as the real-time "new voicemail" alert, so `SMTP_HOST`/`SMTP_FROM` in `.env`
-and each mailbox's notify-suppress settings apply to both. Only the timer is
-enabled (`systemctl enable --now vm-manager-daily-digest.timer`) — the
-service itself stays disabled and is invoked by the timer, same relationship
-as any other `.service`+`.timer` pair. To test it without waiting for 7am:
+**`vm-manager-scheduler.service`** is a long-running daemon (`python3 -m
+app.scheduler`, `app/scheduler.py`) that runs every scheduled background
+task vm-manager has — a small in-process cron replacement rather than a
+systemd timer, so adding a new scheduled task later is just one more entry
+in `scheduler.py`'s `JOBS` list, no new systemd unit needed. Its own loop
+wakes up every 30s and fires any job that's at-or-past its scheduled
+time-of-day and hasn't already run today (tracked in the app's SQLite DB,
+so a restart mid-day never double-fires a job, and a job that was due while
+the service was down still catches up the same day it comes back).
+
+Currently registered:
+- **`daily_digest`** — 07:00 server-local time. Emails one digest per
+  mailbox that currently has unread voicemail — same SMTP config and
+  recipient rules (`access.notification_recipients_for_mailbox`) as the
+  real-time "new voicemail" alert, so `SMTP_HOST`/`SMTP_FROM` in `.env` and
+  each mailbox's notify-suppress settings apply to both.
+
+To test without waiting for the scheduled time, run a job's entry point
+directly (bypasses the scheduler and its once-per-day tracking entirely):
 
 ```bash
-systemctl start vm-manager-daily-digest.service   # runs it once, right now
-journalctl -u vm-manager-daily-digest.service -n 50
-systemctl list-timers vm-manager-daily-digest.timer   # confirm the schedule
+sudo -u phonesystem python3 -m app.daily_digest
+```
+
+Or watch the live service:
+
+```bash
+systemctl status vm-manager-scheduler.service
+journalctl -u vm-manager-scheduler.service -n 50 -f
 ```
 
 ## 2.5 If you need dial_and_play.py (PJSUA2) on the new server
