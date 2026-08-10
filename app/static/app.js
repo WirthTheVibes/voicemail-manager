@@ -220,6 +220,15 @@ const TRASH_ICON_INNER = `
   <path d="M2.5 4.3h11M6 4.3V2.8c0-.5.4-.9.9-.9h2.2c.5 0 .9.4.9.9v1.5M4.7 4.3l.6 8.4c0 .5.5.9 1 .9h3.4c.5 0 .9-.4 1-.9l.6-8.4" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
 `;
 
+// Marks the terminal node of a call path -- the last hop is always the
+// voicemail box that recorded the message, never an intermediate transfer.
+const VOICEMAIL_ICON = `
+  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+    <circle cx="8" cy="8" r="6.5" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <circle cx="8" cy="8" r="2.5" fill="currentColor"/>
+  </svg>
+`;
+
 // The familiar "box with an arrow escaping upward" share glyph (iOS-style),
 // drawn in the same thin-stroke look as the ear/trash icons above.
 const SHARE_ICON = `
@@ -1313,7 +1322,11 @@ function renderCallPath(m) {
   const nodes = [nodeLabel(path.origin.number, path.origin.name)];
   path.hops.forEach((h) => nodes.push(nodeLabel(h.number, h.name)));
   container.innerHTML = `<div class="call-path-chain">${nodes
-    .map((n, i) => `<span class="call-path-node">${n}</span>${i < nodes.length - 1 ? `<span class="call-path-arrow">&rarr;</span>` : ""}`)
+    .map((n, i) => {
+      const isLast = i === nodes.length - 1;
+      const icon = isLast ? `<span class="call-path-node-icon" title="Voicemail box">${VOICEMAIL_ICON}</span>` : "";
+      return `<span class="call-path-node">${n}${icon}</span>${!isLast ? `<span class="call-path-arrow">&rarr;</span>` : ""}`;
+    })
     .join("")}</div>`;
 }
 
