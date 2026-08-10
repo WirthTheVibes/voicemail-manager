@@ -348,7 +348,7 @@ button { font-family: inherit; }
 .call-path-chain { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
 .call-path-node { background: rgba(32, 30, 29, 0.06); border-radius: var(--radius-sm); padding: 2px 8px; white-space: nowrap; }
 .call-path-node-name { opacity: 0.6; margin-left: 4px; }
-.call-path-node-icon { display: inline-flex; align-items: center; margin-left: 5px; color: var(--color-accent); vertical-align: middle; }
+.call-path-node-icon { display: inline-flex; align-items: center; margin-right: 5px; color: var(--color-accent); vertical-align: middle; }
 .call-path-arrow { opacity: 0.35; }
 
 /* --- custom audio player (no native browser controls) --- */

@@ -1325,7 +1325,7 @@ function renderCallPath(m) {
     .map((n, i) => {
       const isLast = i === nodes.length - 1;
       const icon = isLast ? `<span class="call-path-node-icon" title="Voicemail box">${VOICEMAIL_ICON}</span>` : "";
-      return `<span class="call-path-node">${n}${icon}</span>${!isLast ? `<span class="call-path-arrow">&rarr;</span>` : ""}`;
+      return `<span class="call-path-node">${icon}${n}</span>${!isLast ? `<span class="call-path-arrow">&rarr;</span>` : ""}`;
     })
     .join("")}</div>`;
 }
