@@ -79,6 +79,15 @@ class TranscriptionError(RuntimeError):
     """Transcription failed, or the currently-selected engine isn't usable."""
 
 
+# Both engines return a normal 200/success with an empty (or whitespace-only)
+# "text" for silent/no-speech audio -- there's no exception to catch. transcribe()
+# below substitutes this sentinel so the UI (app.js's renderTranscriptionBody,
+# matched against this exact string) can tell "ran, found nothing" apart from
+# "never run" (message["transcription"] still NULL/empty), which a bare empty
+# string can't do on its own.
+NO_SPEECH_TEXT = "No speech detected in this recording."
+
+
 def _vmrss_kb(pid: int) -> int | None:
     try:
         with open(f"/proc/{pid}/status") as f:
@@ -191,6 +200,7 @@ def transcribe(wav_path: str, engine: str | None = None) -> dict:
     TranscriptionError on failure -- callers decide how to surface that."""
     if engine is None:
         engine = app_db.get_transcription_settings()["engine"]
-    if engine == "openai":
-        return _run_openai(wav_path)
-    return _run_local_subprocess(wav_path)
+    result = _run_openai(wav_path) if engine == "openai" else _run_local_subprocess(wav_path)
+    if not result["text"].strip():
+        result["text"] = NO_SPEECH_TEXT
+    return result

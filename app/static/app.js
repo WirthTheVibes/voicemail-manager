@@ -1370,7 +1370,16 @@ function groupWordsIntoSentences(words) {
 // wireTranscriptWords). Falls back to plain, unclickable text when word
 // timestamps aren't available (e.g. the OpenAI engine on its default
 // model) or there's no transcription yet.
+// Must match app/transcription.py's NO_SPEECH_TEXT -- that's the sentinel
+// transcribe() substitutes for silent/no-speech audio so this can tell "ran,
+// found nothing" apart from "never run" (m.transcription still null/empty).
+const NO_SPEECH_TEXT = "No speech detected in this recording.";
+
 function renderTranscriptionBody(m) {
+  if (m.transcription === NO_SPEECH_TEXT) {
+    return `<div class="reserved-slot">No speech was found in this recording - it appears nobody spoke.</div>
+            <button class="btn btn-secondary" id="generate-transcription-btn" type="button">Regenerate transcription</button>`;
+  }
   if (!m.transcription) {
     return `<div class="reserved-slot">No transcription yet</div>
             <button class="btn btn-secondary" id="generate-transcription-btn" type="button">Generate transcription</button>`;
