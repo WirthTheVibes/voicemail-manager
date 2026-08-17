@@ -1564,6 +1564,14 @@ function renderDetail(m) {
       }
       return;
     }
+    // Playback auto-marks heard after 1s (markHeardOnce) and re-titles this
+    // same button "Mark unheard" mid-listen -- a reflexive second click
+    // right after pressing Play (muscle memory from before auto-mark
+    // existed) was flipping messages straight back to unheard 2-3s later,
+    // which is why listening never stuck and only a hard delete cleared a
+    // mailbox's MWI. Ignore an unheard-bound click while still playing.
+    const audioEl = el("player-audio");
+    if (m.heard && audioEl && !audioEl.paused) return;
     const newHeard = !m.heard;
     const result = await api(`/api/messages/${m.id}/heard`, { method: "POST", body: JSON.stringify({ heard: newHeard }) });
     m.heard = result.heard;
