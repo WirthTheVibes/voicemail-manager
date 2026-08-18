@@ -853,6 +853,18 @@ def get_user_email(extension: str) -> str | None:
         return row["email"] if row else None
 
 
+def get_manual_user_email(extension: str) -> str | None:
+    """Only the admin-set override, if any -- never an auto-synced '3cx' row.
+    Used by resolve_email so 3cx-sourced rows always get re-checked against
+    3CX instead of serving a possibly-stale cached value forever."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT email FROM app_user WHERE extension = ? AND email_source = 'manual'",
+            (extension,),
+        ).fetchone()
+        return row["email"] if row else None
+
+
 def set_user_email(extension: str, email: str | None):
     """Admin override via the Users tab -- marks the row 'manual' so a later
     sync_user_email_from_3cx call won't silently overwrite it."""

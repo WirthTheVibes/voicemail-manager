@@ -42,18 +42,19 @@ except ImportError:
 
 
 def resolve_email(extension: str) -> str | None:
-    """app_db's app_user cache first (may be a manual override); falls back
-    to 3CX's own voicemail.email and caches it for next time -- see
-    app_db.sync_user_email_from_3cx for why that never clobbers a manual
-    override."""
-    email = app_db.get_user_email(extension)
-    if email:
-        return email
+    """Manual admin override (Users tab) always wins if set. Otherwise always
+    re-check 3CX's own voicemail.email so renamed/updated addresses take
+    effect immediately instead of serving a stale cached value forever --
+    see app_db.sync_user_email_from_3cx for why this never clobbers a manual
+    override. Falls back to the last cached value if 3CX is unreachable."""
+    manual_email = app_db.get_manual_user_email(extension)
+    if manual_email:
+        return manual_email
     row = threecx_db.mailbox_email(extension)
     if row and row["email"]:
         app_db.sync_user_email_from_3cx(extension, row["email"])
         return row["email"]
-    return None
+    return app_db.get_user_email(extension)
 
 
 def _send_smtp(message: dict) -> None:
