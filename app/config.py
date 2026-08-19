@@ -29,6 +29,12 @@ ADMIN_EXTENSIONS = set(
     e.strip() for e in os.environ.get("ADMIN_EXTENSIONS", "").split(",") if e.strip()
 )
 VOICEMAIL_ROOT = Path(os.environ.get("VOICEMAIL_ROOT", "/var/lib/3cxpbx/Instance1/Data/Ivr/Voicemail/Extensions"))
+# Separate tree from VOICEMAIL_ROOT above: per-extension greeting recording
+# files (see greeting_service.py/threecx_notify.py -- which file is *active*
+# is tracked by 3CX's own xapi, not read from disk here). Confirmed via HAR
+# + filesystem inspection to be a sibling of Extensions/ under the same
+# Voicemail directory.
+GREETING_ROOT = Path(os.environ.get("GREETING_ROOT", "/var/lib/3cxpbx/Instance1/Data/Ivr/Voicemail/Data"))
 APP_DB_PATH = os.environ.get("APP_DB_PATH", "/opt/vm-manager/vm_manager.db")
 
 # Native 3CX MWI notify (see notes/3cx-native-notify.md). Required: marking a
@@ -124,6 +130,34 @@ def resolve_voicemail_path(callee: str, wav_file: str) -> Path:
     candidate = (root / callee / f"{wav_file}.wav").resolve()
     if root not in candidate.parents:
         raise ValueError(f"Path {candidate} escapes VOICEMAIL_ROOT")
+    return candidate
+
+
+# The literal audio callers hear when an extension has no custom greeting
+# recorded ("3CX default" in the combo box) -- 3CX's own "record your
+# message" prompt. Resolved from the DB once (promptlang.folder for
+# idpromptlang=1, "Standard English Prompts Set"; prompt.promptcode
+# RECYAMSG = "Record your message and press pound...") and hardcoded here
+# rather than looked up per-request -- this PBX runs English-only, so
+# there's exactly one such prompt in practice. Override via env var if that
+# ever stops being true.
+SYSTEM_DEFAULT_GREETING_PATH = Path(os.environ.get(
+    "SYSTEM_DEFAULT_GREETING_PATH",
+    "/var/lib/3cxpbx/Instance1/Data/Ivr/Prompts/Sets/8210986B-9412-497f-AD77-3A554F4A9BDB/record_your_message.wav",
+))
+
+
+def resolve_greeting_path(extension: str, filename: str) -> Path:
+    """Joins GREETING_ROOT/extension/filename, resolved and guarded against
+    a value that could escape GREETING_ROOT via "..". Raises ValueError if
+    it would escape. Unlike resolve_voicemail_path, `filename` here already
+    includes its extension (e.g. "test.wav"), matching greetings.xml's own
+    file="..." attribute -- doesn't check the file exists, same as
+    resolve_voicemail_path."""
+    root = GREETING_ROOT.resolve()
+    candidate = (root / extension / filename).resolve()
+    if root not in candidate.parents:
+        raise ValueError(f"Path {candidate} escapes GREETING_ROOT")
     return candidate
 
 

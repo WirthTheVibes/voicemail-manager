@@ -12,6 +12,7 @@ Reverse-engineered against 3CX v20.0.9.995 — see notes/3cx-native-notify.md
 for the full protocol writeup this implementation follows.
 """
 import threading
+from urllib.parse import quote
 
 import pyotp
 import requests
@@ -24,6 +25,19 @@ _SESSION_PATH = "/webclient/api/MyPhone/session"
 _RPC_PATH = "/MyPhone/MPWebService.asmx"
 _METHOD_MARK_HEARD = 114
 _METHOD_DELETE = 126
+_METHOD_RECORD_FILE = 144
+
+# 3CX's REST xapi -- not the legacy MPWebService RPC above, but the same
+# OAuth access_token from _AdminSession.impersonate() authenticates it (same
+# Authorization: Bearer header the MyPhone session bootstrap uses). Backs
+# the greeting file manager (list/activate/delete) -- reverse-engineered
+# from the real webclient's Settings > Greetings screen, see
+# "greeting delete.har": DELETE .../DeleteGreeting/{file}, then
+# PATCH MyUser {"Greetings":[{"Type":"Default","Filename":""}]} to clear the
+# now-dangling active pointer -- 3CX does NOT do that second step itself.
+_XAPI_GREETINGS_PATH = "/xapi/v1/MyUser/Greetings"
+_XAPI_DELETE_GREETING_PATH = "/xapi/v1/MyUser/DeleteGreeting"
+_XAPI_MYUSER_PATH = "/xapi/v1/MyUser"
 
 _TIMEOUT = 10
 
@@ -68,6 +82,15 @@ def _delete_payload(voicemail_id: int) -> bytes:
     return (
         _tag(1, 0) + _varint(_METHOD_DELETE)
         + _tag(_METHOD_DELETE, 2) + _varint(len(inner)) + inner
+    )
+
+
+def _record_file_payload(filename: str) -> bytes:
+    filename_bytes = filename.encode()
+    inner = _tag(1, 2) + _varint(len(filename_bytes)) + filename_bytes
+    return (
+        _tag(1, 0) + _varint(_METHOD_RECORD_FILE)
+        + _tag(_METHOD_RECORD_FILE, 2) + _varint(len(inner)) + inner
     )
 
 
@@ -225,6 +248,25 @@ def _call_delete_rpc(session_key: str, voicemail_id: int) -> None:
     # Same generic-ack caveat as _call_mark_heard_rpc — verify via DB.
 
 
+def _call_record_file_rpc(session_key: str, filename: str) -> None:
+    resp = requests.post(
+        f"{config.THREECX_PBX_URL}{_RPC_PATH}",
+        headers={
+            "Content-Type": "application/octet-stream",
+            "Accept": "application/octet-stream",
+            "MyPhoneSession": session_key,
+        },
+        data=_record_file_payload(filename),
+        timeout=_TIMEOUT,
+    )
+    resp.raise_for_status()
+    # Same generic-ack caveat as _call_mark_heard_rpc/_call_delete_rpc, plus
+    # one more: there's no DB row to verify this against at all. This RPC
+    # alone also does not create the file or activate it as the greeting --
+    # confirmed empirically (see notify_record_file's docstring) -- it's
+    # purely a heads-up to 3CX that a phone-based recording is starting.
+
+
 def _heard_matches(row: dict, expected: bool) -> bool:
     # s_voicemail.heard is a text column ('0'/'1'/''/NULL), not a real
     # boolean — mirrors routes/mailboxes.py's _is_unheard().
@@ -278,3 +320,99 @@ def notify_delete(voicemail_id: int, extension: str) -> None:
             f"Native delete for voicemail {voicemail_id} (ext {extension}) did not "
             f"take effect; ownership mismatches fail silently."
         )
+
+
+def notify_record_file(extension: str, filename: str) -> None:
+    """Impersonate `extension` and issue 3CX's MyPhone RPC method 144
+    ("RecordFile"), reverse-engineered from the 3CX webclient's Settings >
+    Greetings "Record Default" flow (see recordmessage-full.har). Unlike
+    notify_heard/notify_delete this has no DB row to verify success against,
+    and in testing it did not itself create `filename` on disk -- that
+    happens as a side effect of the phone call this triggers (3CX calls the
+    extension; its owner records live). Once the file exists, activating it
+    is a separate step through the xapi greeting-file-manager functions
+    below (set_active_greeting_filename), not this RPC.
+    """
+    session_key = _impersonate_and_open_session(extension)
+    try:
+        _call_record_file_rpc(session_key, filename)
+    except requests.exceptions.HTTPError as e:
+        raise NotifyError(f"RecordFile RPC failed for extension {extension} (file {filename}): {e}") from e
+
+
+# --- Greeting file manager (xapi, not the legacy RPC above) -----------------
+
+def list_greeting_files(extension: str) -> list[str]:
+    """Every greeting WAV filename 3CX has stored for `extension`, shared
+    across all its greeting profiles (Default/Available/Away/Do Not
+    Disturb -- a profile just points at one of these, or none at all for
+    3CX's own system default)."""
+    access_token = _admin.impersonate(extension)
+    try:
+        resp = requests.get(
+            f"{config.THREECX_PBX_URL}{_XAPI_GREETINGS_PATH}",
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        raise NotifyError(f"Could not list greeting files for extension {extension}: {e}") from e
+    return [row["Filename"] for row in resp.json().get("value", [])]
+
+
+def get_active_greeting_filename(extension: str, profile: str = "Default") -> str | None:
+    """The filename `profile` currently points at, or None if it has no
+    override (playing 3CX's system default)."""
+    access_token = _admin.impersonate(extension)
+    try:
+        resp = requests.get(
+            f"{config.THREECX_PBX_URL}{_XAPI_MYUSER_PATH}",
+            params={"$select": "Greetings", "$expand": "Greetings"},
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        raise NotifyError(f"Could not read greeting profile for extension {extension}: {e}") from e
+    for row in resp.json().get("Greetings", []):
+        if row.get("Type") == profile:
+            return row.get("Filename") or None
+    return None
+
+
+def set_active_greeting_filename(extension: str, filename: str, profile: str = "Default") -> None:
+    """Points `profile` at `filename` -- pass "" to clear it back to 3CX's
+    system default (what deleting the active file also requires as a
+    separate follow-up call, see delete_greeting_file)."""
+    access_token = _admin.impersonate(extension)
+    try:
+        resp = requests.patch(
+            f"{config.THREECX_PBX_URL}{_XAPI_MYUSER_PATH}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            json={"Greetings": [{"Type": profile, "Filename": filename}]},
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        raise NotifyError(f"Could not set greeting profile for extension {extension}: {e}") from e
+
+
+def delete_greeting_file(extension: str, filename: str) -> None:
+    """Permanently deletes one greeting WAV from 3CX's own store. Does NOT
+    clear a profile that was pointing at it -- confirmed against the real
+    webclient's own delete flow, which issues a separate PATCH afterward
+    (see set_active_greeting_filename); callers here must do the same."""
+    access_token = _admin.impersonate(extension)
+    try:
+        resp = requests.delete(
+            f"{config.THREECX_PBX_URL}{_XAPI_DELETE_GREETING_PATH}/{quote(filename, safe='')}",
+            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
+            timeout=_TIMEOUT,
+        )
+        resp.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        raise NotifyError(f"Could not delete greeting file {filename} for extension {extension}: {e}") from e

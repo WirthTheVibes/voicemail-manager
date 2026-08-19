@@ -173,6 +173,10 @@ document.addEventListener("keydown", (e) => {
     closeShareModal();
     return;
   }
+  if (!el("user-settings-modal-overlay").classList.contains("hidden")) {
+    closeUserSettingsModal();
+    return;
+  }
   if (!el("settings-overlay").classList.contains("hidden")) {
     setUrl(mailboxPath(state.currentExtension));
     closeSettingsOverlay();
@@ -253,6 +257,34 @@ const SPEAKER_ICON = `
 const PHONE_ICON = `
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
     <path fill="currentColor" d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z"/>
+  </svg>
+`;
+
+// Record-new-greeting button (Settings > Voicemail Greeting) -- classic mic
+// glyph, same thin-stroke look as EAR_ICON_INNER/TRASH_ICON_INNER above.
+const MIC_ICON = `
+  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+    <rect x="6" y="1.5" width="4" height="7.5" rx="2" fill="none" stroke="currentColor" stroke-width="1.2"/>
+    <path d="M3.5 7.5a4.5 4.5 0 0 0 9 0" stroke="currentColor" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+    <line x1="8" y1="12" x2="8" y2="14.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+    <line x1="5.5" y1="14.5" x2="10.5" y2="14.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/>
+  </svg>
+`;
+
+// Show/hide toggle for the masked Phone PIN field (see renderPinSection) --
+// standard "eye" / "eye with slash" glyphs, same 16x16 sizing as the icons
+// above.
+const EYE_ICON = `
+  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+    <path d="M1 8s2.7-4.5 7-4.5S15 8 15 8s-2.7 4.5-7 4.5S1 8 1 8z" stroke="currentColor" stroke-width="1.1" fill="none" stroke-linejoin="round"/>
+    <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.1" fill="none"/>
+  </svg>
+`;
+const EYE_OFF_ICON = `
+  <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true">
+    <path d="M1 8s2.7-4.5 7-4.5S15 8 15 8s-2.7 4.5-7 4.5S1 8 1 8z" stroke="currentColor" stroke-width="1.1" fill="none" stroke-linejoin="round"/>
+    <circle cx="8" cy="8" r="2" stroke="currentColor" stroke-width="1.1" fill="none"/>
+    <path d="M2.5 2.5l11 11" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>
   </svg>
 `;
 
@@ -472,6 +504,8 @@ el("sidebar-user").addEventListener("click", () => {
 el("sidebar-user-popover").querySelectorAll(".user-popover-option").forEach((btn) => {
   btn.addEventListener("click", () => navigateToMailbox(state.me.extension, btn.dataset.mode));
 });
+
+el("popover-user-settings-btn").addEventListener("click", () => openUserSettingsModal());
 
 el("sidebar-search").addEventListener("input", () => renderMailboxes());
 
@@ -1685,6 +1719,418 @@ function closeShareModal() {
 }
 
 el("share-modal-close").addEventListener("click", closeShareModal);
+
+// --- user settings modal (Settings > Voicemail Greeting, more sections
+// likely later e.g. voicemail PIN) ---
+//
+// Review uses the same speaker/phone player pattern as the message detail
+// panel's wireCustomPlayer (see above), but is its own smaller function
+// against its own "greeting-*" element ids -- the detail panel's player
+// element is always present in the DOM once any message has been viewed,
+// so reusing "player-*" ids here would collide with it.
+//
+// Recording itself is entirely 3CX's own doing, not this app's: clicking
+// the record button fires the RecordFile RPC (method 144, see
+// threecx_notify.notify_record_file), which is what makes 3CX call the
+// extension so its owner can record over the phone -- same as 3CX's own
+// Settings > Greetings "Record Default" dialog (see
+// recordmessage-full.har). This modal just starts that call
+// (POST /api/greeting/record) and polls GET /api/greeting/record/status
+// until the WAV 3CX writes shows up and gets activated server-side.
+
+let greetingStatusPollTimer = null;
+
+function stopGreetingStatusPoll() {
+  if (greetingStatusPollTimer) {
+    clearTimeout(greetingStatusPollTimer);
+    greetingStatusPollTimer = null;
+  }
+}
+
+function pollGreetingRecordingStatus() {
+  const statusEl = el("greeting-record-status");
+  const errEl = el("greeting-record-error");
+  api("/api/greeting/record/status")
+    .then((result) => {
+      if (result.status === "waiting") {
+        greetingStatusPollTimer = setTimeout(pollGreetingRecordingStatus, 2000);
+        return;
+      }
+      if (result.status === "done") {
+        // Recording only ever adds a new file -- it does not activate
+        // itself (matches 3CX's own webclient) -- re-render just picks up
+        // the new row in the list and re-enables the button.
+        loadGreetingSection();
+        return;
+      }
+      const btn = el("greeting-record-btn");
+      statusEl.textContent = "";
+      if (result.status === "timed_out") {
+        errEl.textContent = "No recording came through in time — try again.";
+      }
+      if (btn) btn.disabled = false;
+    })
+    .catch(() => {
+      // Transient error -- keep polling rather than giving up on one bad request.
+      greetingStatusPollTimer = setTimeout(pollGreetingRecordingStatus, 2000);
+    });
+}
+
+function wireGreetingRecorder() {
+  const btn = el("greeting-record-btn");
+  const statusEl = el("greeting-record-status");
+  const errEl = el("greeting-record-error");
+
+  btn.addEventListener("click", async () => {
+    errEl.textContent = "";
+    btn.disabled = true;
+    try {
+      await api("/api/greeting/record", { method: "POST" });
+      statusEl.textContent = "Calling your extension — answer and record your greeting, then hang up.";
+      stopGreetingStatusPoll();
+      greetingStatusPollTimer = setTimeout(pollGreetingRecordingStatus, 2000);
+    } catch (err) {
+      errEl.textContent = err.message || "Could not start the recording call.";
+      btn.disabled = false;
+    }
+  });
+}
+
+// Combo box + player, matching this section's earlier design -- now driven
+// by the full file list from 3CX's xapi (see greeting_service.py) instead
+// of a fixed "default"/"recorded" pair. The combo box IS the active-
+// greeting toggle: picking an option calls its activate endpoint right
+// away, and the player below always reflects whichever one that made
+// active. "" is the sentinel value for "3CX Default" (no real filename,
+// see config.SYSTEM_DEFAULT_GREETING_PATH) -- it's also why Delete is
+// disabled whenever that's the current selection: there's no file behind
+// it to delete.
+const GREETING_DEFAULT_KEY = "";
+
+function _greetingFileAudioUrl(filename) {
+  const path = filename === GREETING_DEFAULT_KEY
+    ? "/api/greeting/default/audio"
+    : `/api/greeting/files/${encodeURIComponent(filename)}/audio`;
+  return `${BASE}${path}?t=${Date.now()}`;
+}
+
+function _greetingFileApiPath(filename, action) {
+  return filename === GREETING_DEFAULT_KEY
+    ? `/api/greeting/default/${action}`
+    : `/api/greeting/files/${encodeURIComponent(filename)}/${action}`;
+}
+
+function renderGreetingSection(info) {
+  const activeKey = info.active_filename === null ? GREETING_DEFAULT_KEY : info.active_filename;
+  const options = [`<option value="${GREETING_DEFAULT_KEY}" ${activeKey === GREETING_DEFAULT_KEY ? "selected" : ""}>3CX Default</option>`]
+    .concat(info.files.map((f) => `<option value="${escapeHtml(f)}" ${f === activeKey ? "selected" : ""}>${escapeHtml(f)}</option>`))
+    .join("");
+  return `
+    <div class="field">
+      <label class="detail-section-heading">Greeting</label>
+      <div style="display:flex; gap: var(--space-2); align-items:center; margin-bottom: var(--space-3);">
+        <select class="input" id="greeting-source-select" style="flex:1;">${options}</select>
+        <button class="icon-toggle-btn" id="greeting-record-btn" type="button" title="Record new greeting" aria-label="Record new greeting">${MIC_ICON}</button>
+        ${activeKey !== GREETING_DEFAULT_KEY ? `<button class="icon-toggle-btn" id="greeting-delete-btn" type="button" title="Delete this greeting" aria-label="Delete this greeting">${crossableIcon(TRASH_ICON_INNER, false)}</button>` : ""}
+      </div>
+      <div class="player">
+        <button class="player-btn" id="greeting-player-btn" type="button" aria-label="Play">&#9654;</button>
+        <div class="player-track-col">
+          <div class="player-track" id="greeting-player-track">
+            <div class="player-track-fill" id="greeting-player-track-fill"></div>
+          </div>
+          <div class="player-time-row">
+            <span id="greeting-player-time-current">0:00</span>
+            <div class="player-time-right">
+              <span class="playback-mode-label">Play on:</span>
+              <div class="playback-mode-toggle">
+                <button class="mode-btn active" id="greeting-mode-speaker-btn" type="button" title="Play in browser" aria-pressed="true">${SPEAKER_ICON}</button>
+                <button class="mode-btn" id="greeting-mode-phone-btn" type="button" title="Call my extension to listen" aria-pressed="false">${PHONE_ICON}</button>
+              </div>
+              <span id="greeting-player-time-duration">0:00</span>
+            </div>
+          </div>
+          <div id="greeting-phone-call-status" class="phone-call-status"></div>
+          <div id="greeting-player-error" class="error-text"></div>
+        </div>
+        <audio id="greeting-player-audio" preload="metadata" style="display:none;" src="${_greetingFileAudioUrl(activeKey)}"></audio>
+      </div>
+      <div id="greeting-record-status" class="phone-call-status"></div>
+      <div id="greeting-record-error" class="error-text"></div>
+    </div>
+  `;
+}
+
+function wireGreetingSourceSelect(info) {
+  const select = el("greeting-source-select");
+  select.addEventListener("change", async () => {
+    const filename = select.value;
+    select.disabled = true;
+    try {
+      await api(_greetingFileApiPath(filename, "activate"), { method: "POST" });
+      await loadGreetingSection();
+    } catch (err) {
+      showApiErrorModal(err);
+      select.value = info.active_filename === null ? GREETING_DEFAULT_KEY : info.active_filename;
+      select.disabled = false;
+    }
+  });
+}
+
+function wireGreetingDeleteButton(info) {
+  const btn = el("greeting-delete-btn");
+  if (!btn) return; // not rendered for "3CX Default" -- nothing to delete
+  btn.addEventListener("click", async () => {
+    const filename = info.active_filename;
+    if (!window.confirm(`Delete ${filename}? This cannot be undone.`)) return;
+    btn.disabled = true;
+    try {
+      await api(`/api/greeting/files/${encodeURIComponent(filename)}`, { method: "DELETE" });
+      await loadGreetingSection();
+    } catch (err) {
+      showApiErrorModal(err);
+      btn.disabled = false;
+    }
+  });
+}
+
+function wireGreetingPlayer(info) {
+  const activeKey = info.active_filename === null ? GREETING_DEFAULT_KEY : info.active_filename;
+  const audio = el("greeting-player-audio");
+  const btn = el("greeting-player-btn");
+  const track = el("greeting-player-track");
+  const fill = el("greeting-player-track-fill");
+  const curTimeEl = el("greeting-player-time-current");
+  const durTimeEl = el("greeting-player-time-duration");
+  const speakerBtn = el("greeting-mode-speaker-btn");
+  const phoneBtn = el("greeting-mode-phone-btn");
+  const phoneStatusEl = el("greeting-phone-call-status");
+
+  let mode = "speaker";
+  let phoneStatusTimer = null;
+  let placingCall = false;
+
+  function showPhoneStatus(text, clearAfterMs) {
+    phoneStatusEl.textContent = text;
+    if (phoneStatusTimer) clearTimeout(phoneStatusTimer);
+    if (clearAfterMs) phoneStatusTimer = setTimeout(() => { phoneStatusEl.textContent = ""; }, clearAfterMs);
+  }
+
+  function setMode(next) {
+    mode = next;
+    speakerBtn.classList.toggle("active", mode === "speaker");
+    speakerBtn.setAttribute("aria-pressed", String(mode === "speaker"));
+    phoneBtn.classList.toggle("active", mode === "phone");
+    phoneBtn.setAttribute("aria-pressed", String(mode === "phone"));
+    btn.title = mode === "phone" ? "Call my phone" : "Play on computer";
+    showPhoneStatus("");
+  }
+
+  speakerBtn.addEventListener("click", () => {
+    if (mode !== "speaker") audio.pause();
+    setMode("speaker");
+  });
+  phoneBtn.addEventListener("click", () => setMode("phone"));
+
+  function placePhoneCall() {
+    if (placingCall) return;
+    placingCall = true;
+    btn.disabled = true;
+    showPhoneStatus("Calling your extension…");
+    api(_greetingFileApiPath(activeKey, "call"), { method: "POST" })
+      .then((result) => {
+        showPhoneStatus(`Ringing ext. ${result.extension} — pick up to listen.`, 8000);
+        placingCall = false;
+        setTimeout(() => { btn.disabled = false; }, PHONE_CALL_COOLDOWN_MS);
+      })
+      .catch((err) => {
+        showPhoneStatus(err.message || "Could not place the call.", 8000);
+        placingCall = false;
+        btn.disabled = false;
+      });
+  }
+
+  function showPlayerError(message) {
+    btn.disabled = true;
+    track.style.cursor = "default";
+    el("greeting-player-error").textContent = message;
+  }
+
+  btn.addEventListener("click", () => {
+    if (mode === "phone") {
+      placePhoneCall();
+      return;
+    }
+    if (audio.paused) {
+      audio.play().catch(() => showPlayerError("This greeting's audio is no longer available."));
+    } else {
+      audio.pause();
+    }
+  });
+
+  audio.addEventListener("play", () => { btn.textContent = "⏸"; });
+  audio.addEventListener("pause", () => { btn.textContent = "▶"; });
+  audio.addEventListener("error", () => showPlayerError("This greeting's audio is no longer available."));
+  audio.addEventListener("loadedmetadata", () => { durTimeEl.textContent = formatSeconds(audio.duration); });
+  audio.addEventListener("timeupdate", () => {
+    if (audio.duration) fill.style.width = `${(audio.currentTime / audio.duration) * 100}%`;
+    curTimeEl.textContent = formatSeconds(audio.currentTime);
+  });
+  track.addEventListener("click", (e) => {
+    if (!audio.duration) return;
+    const rect = track.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
+    audio.currentTime = ratio * audio.duration;
+  });
+}
+
+async function loadGreetingSection() {
+  stopGreetingStatusPoll();
+  const body = el("user-settings-modal-body");
+  // Only show the "Loading…" placeholder on the very first open -- on a
+  // reload (switching the combo box, a recording call finishing) the body
+  // already has real content, and briefly collapsing it down to one line
+  // of placeholder text just to immediately grow back once the fetch
+  // resolves makes the modal visibly shrink and pop back, which reads as
+  // broken rather than as loading. Just swap straight to the new content
+  // once it's ready instead.
+  if (!body.children.length) {
+    body.innerHTML = `<div style="opacity:0.6; font-size:13px;">Loading…</div>`;
+  }
+  let info, pinInfo;
+  try {
+    [info, pinInfo] = await Promise.all([api("/api/greeting"), api("/api/pin")]);
+  } catch (err) {
+    body.innerHTML = `<div class="error-text">${escapeHtml(err.message || "Could not load your settings.")}</div>`;
+    return;
+  }
+  body.innerHTML = renderGreetingSection(info) + renderPinSection(pinInfo.pin);
+  wireGreetingSourceSelect(info);
+  wireGreetingPlayer(info);
+  wireGreetingDeleteButton(info);
+  wireGreetingRecorder();
+  wirePinSection();
+
+  // Resume if a recording call was already in progress -- e.g. the user
+  // closed and reopened the modal mid-call.
+  api("/api/greeting/record/status")
+    .then((result) => {
+      if (result.status !== "waiting") return;
+      const btn = el("greeting-record-btn");
+      const statusEl = el("greeting-record-status");
+      if (!btn || !statusEl) return;
+      btn.disabled = true;
+      statusEl.textContent = "Calling your extension. Answer, record your message, press # to stop and 0 to save.";
+      greetingStatusPollTimer = setTimeout(pollGreetingRecordingStatus, 2000);
+    })
+    .catch(() => {});
+}
+
+// Settings > Change Phone PIN -- sits directly below the Greeting section in
+// the same modal body (see loadGreetingSection). Shows the current PIN
+// read-only with a "Set" button beside it that swaps in a small inline
+// new/confirm form, rather than a separate dialog, to match the greeting
+// section's inline-controls style above it.
+function renderPinSection(pin) {
+  return `
+    <div class="field">
+      <label class="detail-section-heading">Phone PIN</label>
+      <div id="pin-display-row" style="display:flex; gap: var(--space-2); align-items:center;">
+        <input class="input" id="pin-current-input" type="password" value="${escapeHtml(pin || "")}" readonly autocomplete="off" style="flex:1;">
+        <button class="pin-reveal-btn" id="pin-reveal-btn" type="button" aria-label="Show PIN" aria-pressed="false" title="Show PIN">${EYE_ICON}</button>
+        <button class="btn btn-secondary" id="pin-set-btn" type="button">Set</button>
+      </div>
+      <div id="pin-edit-row" class="hidden" style="display:flex; gap: var(--space-2); align-items:center; margin-top: var(--space-2);">
+        <input class="input" id="pin-new-input" type="text" inputmode="numeric" autocomplete="off" placeholder="New PIN" style="flex:1;">
+        <input class="input" id="pin-confirm-input" type="text" inputmode="numeric" autocomplete="off" placeholder="Confirm PIN" style="flex:1;">
+        <button class="btn btn-secondary" id="pin-save-btn" type="button">Save</button>
+        <button class="btn btn-secondary" id="pin-cancel-btn" type="button">Cancel</button>
+      </div>
+      <div id="pin-set-error" class="error-text"></div>
+    </div>
+  `;
+}
+
+function wirePinSection() {
+  const displayRow = el("pin-display-row");
+  const editRow = el("pin-edit-row");
+  const setBtn = el("pin-set-btn");
+  const revealBtn = el("pin-reveal-btn");
+  const saveBtn = el("pin-save-btn");
+  const cancelBtn = el("pin-cancel-btn");
+  const newInput = el("pin-new-input");
+  const confirmInput = el("pin-confirm-input");
+  const errEl = el("pin-set-error");
+  const currentInput = el("pin-current-input");
+
+  revealBtn.addEventListener("click", () => {
+    const revealed = currentInput.type === "text";
+    currentInput.type = revealed ? "password" : "text";
+    revealBtn.innerHTML = revealed ? EYE_ICON : EYE_OFF_ICON;
+    revealBtn.setAttribute("aria-pressed", String(!revealed));
+    revealBtn.setAttribute("aria-label", revealed ? "Show PIN" : "Hide PIN");
+    revealBtn.title = revealed ? "Show PIN" : "Hide PIN";
+  });
+
+  const showEdit = () => {
+    // Re-mask on entering edit mode too -- no reason to leave the old PIN
+    // exposed once the user's focus has moved to typing a new one.
+    currentInput.type = "password";
+    revealBtn.innerHTML = EYE_ICON;
+    revealBtn.setAttribute("aria-pressed", "false");
+    revealBtn.setAttribute("aria-label", "Show PIN");
+    revealBtn.title = "Show PIN";
+    errEl.textContent = "";
+    newInput.value = "";
+    confirmInput.value = "";
+    displayRow.classList.add("hidden");
+    editRow.classList.remove("hidden");
+    newInput.focus();
+  };
+  const showDisplay = () => {
+    editRow.classList.add("hidden");
+    displayRow.classList.remove("hidden");
+  };
+
+  setBtn.addEventListener("click", showEdit);
+  cancelBtn.addEventListener("click", showDisplay);
+
+  saveBtn.addEventListener("click", async () => {
+    errEl.textContent = "";
+    const pin1 = newInput.value.trim();
+    const pin2 = confirmInput.value.trim();
+    if (!pin1 || !pin2) {
+      errEl.textContent = "Enter and confirm the new PIN.";
+      return;
+    }
+    if (pin1 !== pin2) {
+      errEl.textContent = "PINs did not match.";
+      return;
+    }
+    saveBtn.disabled = true;
+    try {
+      await api("/api/pin", { method: "POST", body: JSON.stringify({ pin: pin1 }) });
+      currentInput.value = pin1;
+      showDisplay();
+    } catch (err) {
+      errEl.textContent = err.message || "Could not update PIN.";
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+}
+
+function openUserSettingsModal() {
+  el("user-settings-modal-overlay").classList.remove("hidden");
+  loadGreetingSection();
+}
+
+function closeUserSettingsModal() {
+  stopGreetingStatusPoll();
+  el("user-settings-modal-overlay").classList.add("hidden");
+}
+
+el("user-settings-modal-close").addEventListener("click", closeUserSettingsModal);
 
 // --- settings / admin ---
 

@@ -363,6 +363,24 @@ def set_transcription(message_id: int, text: str):
         cur.execute(Q10_SET_TRANSCRIPTION, {"id": message_id, "text": text})
 
 
+# --- Read: voicemail PIN ------------------------------------------------------
+Q20_GET_PIN = """
+SELECT v.pinnumber
+FROM voicemail v
+JOIN users      u ON v.fkiduser      = u.iduser
+JOIN extension  e ON u.fkidextension = e.fkiddn
+JOIN dn         d ON e.fkiddn         = d.iddn
+WHERE d.value = %(extension)s;
+"""
+
+
+def get_pin(extension: str) -> str | None:
+    with get_conn() as conn, conn.cursor() as cur:
+        cur.execute(Q20_GET_PIN, {"extension": extension})
+        row = cur.fetchone()
+        return row[0] if row else None
+
+
 # --- Write: voicemail PIN ------------------------------------------------------
 # Same reasoning as set_transcription above: 3CX ties no side effect (no SIP
 # NOTIFY, nothing else reads it live) to voicemail.pinnumber, and there's no

@@ -10,7 +10,7 @@ from . import app_db, notifications
 from .events import broadcaster
 from .mwi_relay import mwi_relay
 from .phone_service import phone_service
-from .routes import admin, auth_routes, calls, events, mailboxes, messages, phonebook, push, yealink
+from .routes import admin, auth_routes, calls, events, greetings, mailboxes, messages, phonebook, push, yealink
 from .transcription_worker import transcription_worker
 from .voicemail_watcher import voicemail_watcher
 
@@ -53,6 +53,7 @@ app.include_router(push.router)
 app.include_router(yealink.router)
 app.include_router(phonebook.router)
 app.include_router(events.router)
+app.include_router(greetings.router)
 
 
 @app.get("/favicon.ico", include_in_schema=False)

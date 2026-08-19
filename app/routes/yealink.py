@@ -38,7 +38,7 @@ from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Response
 
-from .. import access, app_db, auth, config, threecx_db, threecx_notify, yealink_xml
+from .. import access, app_db, auth, config, greeting_service, threecx_db, threecx_notify, yealink_xml
 from .mailboxes import _is_unheard
 
 logger = logging.getLogger(__name__)
@@ -270,10 +270,12 @@ def _filter_menu_response(extension: str, box_ext: str, token: str, show_back: b
     ]
     is_personal = box_ext == extension
     if is_personal:
-        # Own mailbox only -- changing a delegated/group mailbox's PIN isn't
-        # this person's PIN to change, so the item is omitted entirely there
-        # rather than just being access-denied if guessed.
+        # Own mailbox only -- changing a delegated/group mailbox's PIN (or
+        # its greeting) isn't this person's to change, so both items are
+        # omitted entirely there rather than just being access-denied if
+        # guessed.
         items.append(("Change PIN", _url(f"/vvm/mailbox/{box_ext}/pin/change", ext=extension, token=token)))
+        items.append(("Voicemail Greeting", _url("/vvm/greeting", ext=extension, token=token)))
     title = "Personal Voicemail" if is_personal else box_ext
     softkeys = [(1, "Select", "SoftKey:Select")]
     if show_back:
@@ -329,6 +331,271 @@ def pin_set(box_ext: str, ext: str, token: str, pin1: str = "", pin2: str = ""):
         yealink_xml.text_screen(
             "PIN Changed", "Your voicemail PIN has been updated.", [_back_softkey(back_uri)]
         )
+    )
+
+
+# --- Voicemail Greeting (personal mailbox only, mirrors the web Settings
+# modal's file manager -- see greeting_service.py, which both share) --------
+#
+# Always acts on the authenticated token's own `extension`, never a box_ext
+# from the URL -- same "own mailbox only" reasoning as Change PIN above, so
+# there's no separate access check beyond the token itself being valid.
+#
+# 3CX's system default (no per-extension file, see
+# config.SYSTEM_DEFAULT_GREETING_PATH) is represented by its own fixed
+# "/vvm/greeting/default*" screens rather than a filename, so it can never
+# be reached through the filename-keyed file routes below and therefore can
+# never be deleted through them either -- the file manager's "Default
+# unable to be deleted" requirement falls out of the routing itself, not an
+# extra check.
+
+def _greeting_menu_response(extension: str, token: str) -> Response:
+    back_uri = _url(f"/vvm/mailbox/{extension}/filter", ext=extension, token=token)
+    try:
+        state = greeting_service.get_state(extension)
+        current_label = state["active_filename"] or "3CX Default"
+    except greeting_service.GreetingActionError as e:
+        return _xml(yealink_xml.text_screen("Error", str(e), [_back_softkey(back_uri)]))
+    items = [
+        ("Manage greetings", _url("/vvm/greeting/manage", ext=extension, token=token)),
+        ("Record new greeting", _url("/vvm/greeting/record/confirm", ext=extension, token=token)),
+    ]
+    softkeys = [(1, "Select", "SoftKey:Select"), _back_softkey(back_uri)]
+    return _xml(yealink_xml.text_menu(f"Greeting: {current_label}", items, softkeys))
+
+
+@router.get("/vvm/greeting")
+def greeting_menu(ext: str, token: str):
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        return _pin_prompt_response(ext)
+    return _greeting_menu_response(extension, token)
+
+
+def _greeting_manage_response(extension: str, token: str) -> Response:
+    """Lists every greeting file 3CX has for this extension, "3CX Default"
+    always first -- selecting one opens its own Play/Select/Delete screen
+    (see greeting_file_screen and greeting_default_screen below). Shared by
+    the initial GET and by the activate/delete actions further down, which
+    land back on this same refreshed listing afterward."""
+    try:
+        state = greeting_service.get_state(extension)
+    except greeting_service.GreetingActionError as e:
+        return _xml(yealink_xml.text_screen("Error", str(e), [_back_softkey(_url("/vvm/greeting", ext=extension, token=token))]))
+    back_uri = _url("/vvm/greeting", ext=extension, token=token)
+    items = [
+        (
+            "3CX Default" + (" (current)" if state["active_filename"] is None else ""),
+            _url("/vvm/greeting/default", ext=extension, token=token),
+        )
+    ]
+    for filename in state["files"][: MAX_MENU_ITEMS - 1]:
+        label = filename + (" (current)" if filename == state["active_filename"] else "")
+        items.append((label, _url("/vvm/greeting/file", ext=extension, token=token, filename=filename)))
+    softkeys = [(1, "Select", "SoftKey:Select"), _back_softkey(back_uri)]
+    return _xml(yealink_xml.text_menu("Manage Greetings", items, softkeys))
+
+
+@router.get("/vvm/greeting/manage")
+def greeting_manage(ext: str, token: str):
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        return _pin_prompt_response(ext)
+    return _greeting_manage_response(extension, token)
+
+
+@router.get("/vvm/greeting/default")
+def greeting_default_screen(ext: str, token: str):
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        return _pin_prompt_response(ext)
+    is_current = greeting_service.get_active_filename(extension) is None
+    back_uri = _url("/vvm/greeting/manage", ext=extension, token=token)
+
+    text = "Currently active." if is_current else "Not currently active."
+    softkeys = []
+    play_uri = None
+    if config.SYSTEM_DEFAULT_GREETING_PATH.is_file():
+        audio_url = _url(
+            "/vvm/greeting/default/audio", ext=extension, token=token, **{"_": secrets.token_hex(4)}
+        )
+        play_uri = f"Wav.Play:{audio_url}"
+        softkeys.append((1, "Play", play_uri))
+    else:
+        text += "\n\nNo audio available to preview."
+    if not is_current:
+        softkeys.append((2, "Select", _url("/vvm/greeting/default/activate", ext=extension, token=token)))
+    softkeys.append(_back_softkey(back_uri))
+    # No Delete softkey here at all -- see this section's module note.
+    return _xml(yealink_xml.text_screen("3CX Default", text, softkeys, done_action=play_uri, lock_in=True))
+
+
+@router.get("/vvm/greeting/default/audio")
+def greeting_default_audio(ext: str, token: str):
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if not config.SYSTEM_DEFAULT_GREETING_PATH.is_file():
+        raise HTTPException(status_code=404, detail="3CX's default greeting prompt is not available")
+    return _xml_response_wav(config.SYSTEM_DEFAULT_GREETING_PATH)
+
+
+@router.get("/vvm/greeting/default/activate")
+def greeting_default_activate(ext: str, token: str):
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        return _pin_prompt_response(ext)
+    try:
+        greeting_service.set_active(extension, None)
+    except greeting_service.GreetingActionError:
+        pass
+    return _greeting_manage_response(extension, token)
+
+
+@router.get("/vvm/greeting/file")
+def greeting_file_screen(ext: str, token: str, filename: str):
+    """Preview-then-select-or-delete screen for one recorded file -- Play
+    fetches it the same way a voicemail message's Play softkey does
+    (Wav.Play straight at an audio URL, see _detail_response)."""
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        return _pin_prompt_response(ext)
+
+    is_current = greeting_service.get_active_filename(extension) == filename
+    back_uri = _url("/vvm/greeting/manage", ext=extension, token=token)
+    path = greeting_service.resolve_path(extension, filename)
+
+    text = "Currently active." if is_current else "Not currently active."
+    softkeys = []
+    play_uri = None
+    if path is not None:
+        audio_url = _url(
+            "/vvm/greeting/file/audio", ext=extension, token=token, filename=filename, **{"_": secrets.token_hex(4)}
+        )
+        play_uri = f"Wav.Play:{audio_url}"
+        softkeys.append((1, "Play", play_uri))
+    else:
+        text += "\n\nNo audio available to preview."
+    if not is_current:
+        softkeys.append((2, "Select", _url("/vvm/greeting/file/activate", ext=extension, token=token, filename=filename)))
+    softkeys.append((3, "Delete", _url("/vvm/greeting/file/delete/confirm", ext=extension, token=token, filename=filename)))
+    softkeys.append(_back_softkey(back_uri))
+
+    return _xml(yealink_xml.text_screen(filename, text, softkeys, done_action=play_uri, lock_in=True))
+
+
+@router.get("/vvm/greeting/file/audio")
+def greeting_file_audio(ext: str, token: str, filename: str):
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    path = greeting_service.resolve_path(extension, filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="Greeting audio file not found")
+    return _xml_response_wav(path)
+
+
+@router.get("/vvm/greeting/file/activate")
+def greeting_file_activate(ext: str, token: str, filename: str):
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        return _pin_prompt_response(ext)
+    try:
+        greeting_service.set_active(extension, filename)
+    except greeting_service.GreetingActionError:
+        # Stale link (e.g. the file got deleted from another session in
+        # between) -- just fall through to the refreshed menu below rather
+        # than a dead-end error screen; it'll show the true state.
+        pass
+    return _greeting_manage_response(extension, token)
+
+
+@router.get("/vvm/greeting/file/delete/confirm")
+def greeting_file_delete_confirm(ext: str, token: str, filename: str):
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        return _pin_prompt_response(ext)
+    back_uri = _url("/vvm/greeting/file", ext=extension, token=token, filename=filename)
+    delete_uri = _url("/vvm/greeting/file/delete", ext=extension, token=token, filename=filename)
+    text = f"Delete {filename}?\n\nThis cannot be undone."
+    softkeys = [(1, "Confirm", delete_uri), (BACK_INDEX, "Cancel", back_uri)]
+    return _xml(yealink_xml.text_screen("Confirm Delete", text, softkeys, lock_in=True))
+
+
+@router.get("/vvm/greeting/file/delete")
+def greeting_file_delete(ext: str, token: str, filename: str):
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        return _pin_prompt_response(ext)
+    try:
+        greeting_service.delete_file(extension, filename)
+    except greeting_service.GreetingActionError as e:
+        back_uri = _url("/vvm/greeting/manage", ext=extension, token=token)
+        return _xml(yealink_xml.text_screen("Delete Failed", str(e), [_back_softkey(back_uri)]))
+    return _greeting_manage_response(extension, token)
+
+
+@router.get("/vvm/greeting/record/confirm")
+def greeting_record_confirm(ext: str, token: str):
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        return _pin_prompt_response(ext)
+    back_uri = _url("/vvm/greeting", ext=extension, token=token)
+    start_uri = _url("/vvm/greeting/record/start", ext=extension, token=token)
+    text = "This will call your extension now.\n\nAnswer and record your greeting, then hang up."
+    softkeys = [(1, "Start", start_uri), _back_softkey(back_uri)]
+    return _xml(yealink_xml.text_screen("Record Greeting", text, softkeys, lock_in=True))
+
+
+def _greeting_record_waiting_response(extension: str, token: str) -> Response:
+    back_uri = _url("/vvm/greeting", ext=extension, token=token)
+    status_uri = _url("/vvm/greeting/record/status", ext=extension, token=token)
+    text = "Calling your extension now.\n\nAnswer and record your greeting, then hang up. Press Check when done."
+    softkeys = [(1, "Check", status_uri), _back_softkey(back_uri)]
+    return _xml(yealink_xml.text_screen("Recording…", text, softkeys, lock_in=True))
+
+
+@router.get("/vvm/greeting/record/start")
+def greeting_record_start(ext: str, token: str):
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        return _pin_prompt_response(ext)
+    back_uri = _url("/vvm/greeting", ext=extension, token=token)
+    try:
+        greeting_service.start_recording(extension)
+    except greeting_service.GreetingActionError as e:
+        return _xml(yealink_xml.text_screen("Could Not Start", str(e), [_back_softkey(back_uri)]))
+    return _greeting_record_waiting_response(extension, token)
+
+
+@router.get("/vvm/greeting/record/status")
+def greeting_record_status(ext: str, token: str):
+    """Manually polled via the "Check" softkey -- the phone has no
+    JS-timer-style auto-refresh, unlike the web Settings modal's poll loop
+    (both read the same greeting_service.recording_status underneath)."""
+    extension = auth.verify_yealink_token(token)
+    if extension is None:
+        return _pin_prompt_response(ext)
+    back_uri = _url("/vvm/greeting", ext=extension, token=token)
+    manage_uri = _url("/vvm/greeting/manage", ext=extension, token=token)
+    result = greeting_service.recording_status(extension)
+    if result["status"] == "waiting":
+        return _greeting_record_waiting_response(extension, token)
+    if result["status"] == "done":
+        # Recording only ever adds a new file -- it does not activate
+        # itself (matches 3CX's own webclient), so point at Manage
+        # Greetings to pick it rather than claiming it's already playing.
+        return _xml(
+            yealink_xml.text_screen(
+                "Recording Saved",
+                "Your new recording has been saved. Go to Manage Greetings to make it active.",
+                [(1, "Manage Greetings", manage_uri), _back_softkey(back_uri)],
+            )
+        )
+    retry_uri = _url("/vvm/greeting/record/confirm", ext=extension, token=token)
+    text = "No recording came through in time." if result["status"] == "timed_out" else "No recording is in progress."
+    return _xml(
+        yealink_xml.text_screen("Not Recorded", text, [(1, "Try Again", retry_uri), _back_softkey(back_uri)])
     )
 
 

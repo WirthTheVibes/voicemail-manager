@@ -233,6 +233,16 @@ button { font-family: inherit; }
 .user-popover-option.active { background: var(--color-accent-700); color: white; }
 .user-popover-option.active .badge { background: rgba(255, 255, 255, 0.25); color: white; }
 
+/* Below the Voicemails/Call Log view switch -- opens a modal instead of
+   changing state, so it never gets the .active treatment those two do. */
+.user-popover-action {
+  width: 100%; display: flex; align-items: center; gap: var(--space-2);
+  padding: 6px var(--space-1); margin: 2px 0 0; border-top: 1px solid rgba(0, 103, 134, 0.15);
+  border-radius: var(--radius-sm); background: none; border-left: none; border-right: none; border-bottom: none;
+  cursor: pointer; font: inherit; font-size: 13px; color: var(--color-accent-800); opacity: 0.85;
+}
+.user-popover-action:hover { background: rgba(0, 103, 134, 0.08); opacity: 1; }
+
 /* --- Voicemail/Call Log tab strip above the table, non-self mailboxes --- */
 .mailbox-view-tabs { margin-bottom: var(--space-3); }
 
@@ -382,6 +392,15 @@ button { font-family: inherit; }
 }
 .mode-btn:hover { color: var(--color-text); }
 .mode-btn.active { background: var(--color-accent); color: white; }
+
+/* Standalone icon-only toggle button (e.g. the Phone PIN show/hide eye) --
+   same footprint/border as .input so it lines up with the field beside it. */
+.pin-reveal-btn {
+  flex: none; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-md); border: 1px solid var(--color-divider); background: none;
+  color: var(--color-neutral-700); cursor: pointer;
+}
+.pin-reveal-btn:hover { color: var(--color-text); background: rgba(32, 30, 29, 0.07); }
 
 .phone-call-status { font-size: 12px; opacity: 0.65; margin-top: var(--space-2); }
 

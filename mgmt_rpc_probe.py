@@ -15,7 +15,7 @@ Auth mirrors threecx_notify.py's _AdminSession, including SecurityCode
 
 Usage:
     python3 mgmt_rpc_probe.py --method 114 --field 1:6 --field 2:1
-    python3 mgmt_rpc_probe.py --method 105 --field 1:vmail_900_301.wav --impersonate 301
+    python3 mgmt_rpc_probe.py --method 144 --field 1:vmail_900_301.wav --impersonate 301
 
 Fields are `fieldnum:value` pairs, in order, sent as the RPC payload.
 A value that parses as an int is sent as a varint (wire type 0); anything
