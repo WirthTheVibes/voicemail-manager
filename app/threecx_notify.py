@@ -341,20 +341,39 @@ def notify_record_file(extension: str, filename: str) -> None:
 
 
 # --- Greeting file manager (xapi, not the legacy RPC above) -----------------
+#
+# _admin.impersonate() only retries-on-401 around its own /connect/token
+# call (see its docstring) -- a token it hands back can still turn out
+# stale by the time it's actually used against xapi (confirmed live: xapi
+# returned 401 well after impersonate() itself succeeded). _xapi_request
+# below adds the same retry-once-after-invalidate() pattern
+# _impersonate_and_open_session already has for the legacy RPC's session
+# bootstrap, just generalized across GET/PATCH/DELETE instead of one fixed
+# call.
+
+def _xapi_request(extension: str, method: str, url: str, **kwargs) -> requests.Response:
+    # Pop headers once, outside the loop -- a dict pop()ed from kwargs
+    # inside the loop body would vanish after the first attempt, silently
+    # dropping caller-supplied headers (e.g. PATCH's Content-Type) on retry.
+    extra_headers = kwargs.pop("headers", {})
+    for attempt in (0, 1):
+        access_token = _admin.impersonate(extension)
+        headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json", **extra_headers}
+        resp = requests.request(method, url, headers=headers, timeout=_TIMEOUT, **kwargs)
+        if resp.status_code == 401 and attempt == 0:
+            _admin.invalidate()
+            continue
+        resp.raise_for_status()
+        return resp
+
 
 def list_greeting_files(extension: str) -> list[str]:
     """Every greeting WAV filename 3CX has stored for `extension`, shared
     across all its greeting profiles (Default/Available/Away/Do Not
     Disturb -- a profile just points at one of these, or none at all for
     3CX's own system default)."""
-    access_token = _admin.impersonate(extension)
     try:
-        resp = requests.get(
-            f"{config.THREECX_PBX_URL}{_XAPI_GREETINGS_PATH}",
-            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
-            timeout=_TIMEOUT,
-        )
-        resp.raise_for_status()
+        resp = _xapi_request(extension, "GET", f"{config.THREECX_PBX_URL}{_XAPI_GREETINGS_PATH}")
     except requests.exceptions.HTTPError as e:
         raise NotifyError(f"Could not list greeting files for extension {extension}: {e}") from e
     return [row["Filename"] for row in resp.json().get("value", [])]
@@ -363,15 +382,11 @@ def list_greeting_files(extension: str) -> list[str]:
 def get_active_greeting_filename(extension: str, profile: str = "Default") -> str | None:
     """The filename `profile` currently points at, or None if it has no
     override (playing 3CX's system default)."""
-    access_token = _admin.impersonate(extension)
     try:
-        resp = requests.get(
-            f"{config.THREECX_PBX_URL}{_XAPI_MYUSER_PATH}",
+        resp = _xapi_request(
+            extension, "GET", f"{config.THREECX_PBX_URL}{_XAPI_MYUSER_PATH}",
             params={"$select": "Greetings", "$expand": "Greetings"},
-            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
-            timeout=_TIMEOUT,
         )
-        resp.raise_for_status()
     except requests.exceptions.HTTPError as e:
         raise NotifyError(f"Could not read greeting profile for extension {extension}: {e}") from e
     for row in resp.json().get("Greetings", []):
@@ -384,19 +399,12 @@ def set_active_greeting_filename(extension: str, filename: str, profile: str = "
     """Points `profile` at `filename` -- pass "" to clear it back to 3CX's
     system default (what deleting the active file also requires as a
     separate follow-up call, see delete_greeting_file)."""
-    access_token = _admin.impersonate(extension)
     try:
-        resp = requests.patch(
-            f"{config.THREECX_PBX_URL}{_XAPI_MYUSER_PATH}",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Accept": "application/json",
-                "Content-Type": "application/json",
-            },
+        _xapi_request(
+            extension, "PATCH", f"{config.THREECX_PBX_URL}{_XAPI_MYUSER_PATH}",
+            headers={"Content-Type": "application/json"},
             json={"Greetings": [{"Type": profile, "Filename": filename}]},
-            timeout=_TIMEOUT,
         )
-        resp.raise_for_status()
     except requests.exceptions.HTTPError as e:
         raise NotifyError(f"Could not set greeting profile for extension {extension}: {e}") from e
 
@@ -406,13 +414,10 @@ def delete_greeting_file(extension: str, filename: str) -> None:
     clear a profile that was pointing at it -- confirmed against the real
     webclient's own delete flow, which issues a separate PATCH afterward
     (see set_active_greeting_filename); callers here must do the same."""
-    access_token = _admin.impersonate(extension)
     try:
-        resp = requests.delete(
+        _xapi_request(
+            extension, "DELETE",
             f"{config.THREECX_PBX_URL}{_XAPI_DELETE_GREETING_PATH}/{quote(filename, safe='')}",
-            headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
-            timeout=_TIMEOUT,
         )
-        resp.raise_for_status()
     except requests.exceptions.HTTPError as e:
         raise NotifyError(f"Could not delete greeting file {filename} for extension {extension}: {e}") from e
