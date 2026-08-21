@@ -192,10 +192,13 @@ LOGIN_LOCKOUT_MINUTES = int(os.environ.get("LOGIN_LOCKOUT_MINUTES", 15))
 # must be "Single-page application" so login.microsoftonline.com's /token
 # endpoint allows the browser to call it directly) -- no client secret
 # exists anywhere in this flow, so there's nothing to rotate. The browser
-# does the code/PKCE exchange itself and hands vm-manager only the
-# resulting ID token; see ms_auth.py for how that token gets verified
-# (against Microsoft's own public JWKS, not a shared secret) and matched to
-# a 3CX extension via voicemail.email (see threecx_db.by_email).
+# does the code/PKCE exchange itself and hands vm-manager the resulting ID
+# token (plus a delegated Graph access token, scope User.Read); see
+# ms_auth.py for how the ID token gets verified (against Microsoft's own
+# public JWKS, not a shared secret) and matched to a 3CX extension via
+# voicemail.email (see threecx_db.by_email), falling back to the user's own
+# Entra proxyAddresses (ms_auth.fetch_proxy_addresses) if the ID token's
+# primary UPN/email doesn't match.
 MS_AUTH_TENANT_ID = _migrated("ms_auth_tenant_id", "MS_AUTH_TENANT_ID")
 MS_AUTH_CLIENT_ID = _migrated("ms_auth_client_id", "MS_AUTH_CLIENT_ID")
 MS_AUTH_ENABLED = bool(MS_AUTH_TENANT_ID and MS_AUTH_CLIENT_ID)

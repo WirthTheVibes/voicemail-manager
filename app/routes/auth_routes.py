@@ -1,8 +1,12 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel
 
 from .. import app_db, auth, config, ms_auth, threecx_db
 from ..deps import get_session
+
+log = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -14,6 +18,7 @@ class LoginRequest(BaseModel):
 
 class MsLoginRequest(BaseModel):
     id_token: str
+    access_token: str | None = None
 
 
 def _start_session(response: Response, user: dict) -> dict:
@@ -103,6 +108,21 @@ def login_ms(body: MsLoginRequest, response: Response):
         user = threecx_db.by_extension(config.THREECX_ADMIN_EXTENSION)
     else:
         user = threecx_db.by_email(email)
+
+    # The ID token only ever carries one address (preferred_username/upn).
+    # If that didn't match, the signed-in user may still own the mailbox
+    # under a different Entra alias (e.g. a secondary verified domain) --
+    # check the rest of their proxyAddresses before giving up.
+    if user is None and not body.access_token:
+        log.warning("MS Auth: no access_token in login body, skipping proxyAddresses fallback for %s", email)
+    if user is None and body.access_token:
+        for alias in ms_auth.fetch_proxy_addresses(body.access_token):
+            if alias == email.lower():
+                continue
+            user = threecx_db.by_email(alias)
+            if user is not None:
+                break
+
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

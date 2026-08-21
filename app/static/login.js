@@ -66,6 +66,12 @@ document.getElementById("login-form").addEventListener("submit", async (e) => {
 // Microsoft, and (in callback.js) exchanges the returned code for tokens
 // directly against login.microsoftonline.com. See ms_auth.py for how the
 // resulting ID token gets verified server-side.
+//
+// The "User.Read" scope (delegated, reads only the signed-in user's own
+// profile) earns a Graph access token alongside the ID token, which
+// callback.js forwards to /api/login/ms so it can look up the user's other
+// Entra aliases (proxyAddresses) if their primary UPN doesn't match a 3CX
+// extension -- see ms_auth.fetch_proxy_addresses.
 function base64UrlEncode(buffer) {
   return btoa(String.fromCharCode(...new Uint8Array(buffer)))
     .replace(/\+/g, "-")
@@ -112,7 +118,7 @@ async function sha256(input) {
       response_type: "code",
       redirect_uri: `${window.location.origin}${BASE}/callback.html`,
       response_mode: "query",
-      scope: "openid profile email",
+      scope: "openid profile email User.Read",
       code_challenge: challenge,
       code_challenge_method: "S256",
       state,

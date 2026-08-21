@@ -1,7 +1,8 @@
 // Completes the Microsoft (Entra ID) PKCE flow started in login.js: takes
 // the ?code returned by Microsoft, exchanges it directly against
 // login.microsoftonline.com's /token endpoint (no client secret -- this is
-// a public client, see login.js), then hands the resulting ID token to
+// a public client, see login.js), then hands the resulting ID token (plus
+// the Graph-scoped access token, for the proxyAddresses alias fallback) to
 // vm-manager's own /api/login/ms to get a session cookie.
 const BASE = (() => {
   const src = document.currentScript && document.currentScript.src;
@@ -54,7 +55,7 @@ function showError(message) {
         code,
         redirect_uri: `${window.location.origin}${BASE}/callback.html`,
         code_verifier: verifier,
-        scope: "openid profile email",
+        scope: "openid profile email User.Read",
       }),
     });
     const tokenBody = await tokenRes.json();
@@ -65,7 +66,7 @@ function showError(message) {
     const loginRes = await fetch(`${BASE}/api/login/ms`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id_token: tokenBody.id_token }),
+      body: JSON.stringify({ id_token: tokenBody.id_token, access_token: tokenBody.access_token }),
     });
     if (!loginRes.ok) {
       const body = await loginRes.json().catch(() => ({}));
