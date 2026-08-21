@@ -84,6 +84,32 @@ def stream_audio(message_id: int, request: Request, session: dict = Depends(get_
     return StreamingResponse(iter_full(), media_type="audio/wav", headers=headers)
 
 
+def _mark_heard_and_reviewed_after_call(message_id: int, callee: str, reviewer: str, answered: bool, played_to_end: bool) -> None:
+    """`on_complete` for the phone-icon playback -- fires on pjsua2's own
+    worker thread once the call disconnects. Only counts as a real listen
+    if the person actually picked up AND the WAV played to completion (not
+    just "a call was placed"); hanging up partway through doesn't count.
+    app_db/threecx_notify are plain blocking I/O with no thread affinity,
+    so this is safe to run straight off the pjsua2 thread -- see set_heard
+    and mark_reviewed above, which this mirrors."""
+    if not (answered and played_to_end):
+        return
+    try:
+        threecx_notify.notify_heard(message_id, callee, True)
+    except threecx_notify.NotifyError:
+        logger.exception("Phone-playback: mark-heard failed for message %s", message_id)
+    app_db.record_heard_audit(message_id, reviewer, True)
+    app_db.mark_reviewed(message_id, callee, reviewer)
+    viewers = access.viewers_for_mailbox(callee)
+    reviews = app_db.get_reviews(message_id)
+    fresh_message = threecx_db.get_message(message_id)
+    reviewers = access.merge_review_status(
+        viewers, reviews, mailbox_extension=callee,
+        native_heard_at=_native_heard_at(fresh_message) if fresh_message else None,
+    )
+    broadcaster.publish({"type": "reviewed", "mailbox": callee, "message_id": message_id, "reviewers": reviewers})
+
+
 @router.post("/api/messages/{message_id}/call")
 def call_to_my_extension(message_id: int, session: dict = Depends(get_session)):
     """Places a SIP call to the caller's own extension and plays this
@@ -93,8 +119,11 @@ def call_to_my_extension(message_id: int, session: dict = Depends(get_session)):
     this can't be used to ring someone else's desk phone."""
     message = _get_message_or_403(message_id, session)
     path = _resolve_audio_path(message)
+    on_complete = lambda answered, played_to_end: _mark_heard_and_reviewed_after_call(
+        message_id, message["callee"], session["extension"], answered, played_to_end
+    )
     try:
-        label = phone_service.call_extension(str(path), session["extension"])
+        label = phone_service.call_extension(str(path), session["extension"], on_complete=on_complete)
     except PhoneServiceUnavailable as e:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
     except Exception as e:

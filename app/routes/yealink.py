@@ -39,7 +39,9 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, HTTPException, Response
 
 from .. import access, app_db, auth, config, greeting_service, threecx_db, threecx_notify, yealink_xml
+from ..events import broadcaster
 from .mailboxes import _is_unheard
+from .messages import _native_heard_at
 
 logger = logging.getLogger(__name__)
 
@@ -795,6 +797,20 @@ def audio(message_id: int, ext: str, token: str):
         threecx_notify.notify_heard(message_id, message["callee"], True)
     except threecx_notify.NotifyError:
         logger.exception("Yealink audio: mark-heard failed for message %s", message_id)
+
+    # Also record who did it, same as routes/messages.py's set_heard +
+    # mark_reviewed -- `extension` came from the verified Yealink token, so
+    # this is the one point on this path where the listener's identity is
+    # known. Without this the message flips to heard in 3CX but nobody shows
+    # up in the web UI's Reviewed By list.
+    app_db.record_heard_audit(message_id, extension, True)
+    app_db.mark_reviewed(message_id, message["callee"], extension)
+    viewers = access.viewers_for_mailbox(message["callee"])
+    reviews = app_db.get_reviews(message_id)
+    reviewers = access.merge_review_status(
+        viewers, reviews, mailbox_extension=message["callee"], native_heard_at=_native_heard_at(message)
+    )
+    broadcaster.publish({"type": "reviewed", "mailbox": message["callee"], "message_id": message_id, "reviewers": reviewers})
 
     return _xml_response_wav(path)
 

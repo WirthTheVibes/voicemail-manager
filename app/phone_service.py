@@ -110,6 +110,7 @@ if pj is not None:
 
         def onEof2(self):
             logger.info("[phone:%s] playback finished, hanging up", self.call.label)
+            self.call.played_to_end = True
             try:
                 self.call.hangup(pj.CallOpParam(True))
             except pj.Error:
@@ -119,14 +120,20 @@ if pj is not None:
         """Voicemail phone-icon: dial `extension`, and once answered, play
         `wav_path` down the line once, then hang up."""
 
-        def __init__(self, acc, wav_path: str, label: str, on_finished, request_hangup):
+        def __init__(self, acc, wav_path: str, label: str, on_finished, request_hangup, on_complete=None):
             super().__init__(acc)
             self.wav_path = wav_path
             self.label = label
             self.player = None
             self.answered = False
+            self.played_to_end = False
             self._start_ts = time.time()
             self._on_finished = on_finished
+            # Fired once, from DISCONNECTED, with (answered, played_to_end) --
+            # lets a caller (e.g. the voicemail "heard/reviewed" bookkeeping)
+            # act only once playback genuinely completed, not just because a
+            # call was placed. See routes/messages.py's call_to_my_extension.
+            self._on_complete = on_complete
             self._ring_timer = threading.Timer(RING_TIMEOUT_SECONDS, lambda: request_hangup(label))
             self._ring_timer.daemon = True
             self._ring_timer.start()
@@ -151,6 +158,11 @@ if pj is not None:
                 self.answered = True
             elif ci.state == pj.PJSIP_INV_STATE_DISCONNECTED:
                 self._ring_timer.cancel()
+                if self._on_complete is not None:
+                    try:
+                        self._on_complete(self.answered, self.played_to_end)
+                    except Exception:
+                        logger.exception("[phone:%s] on_complete callback failed", self.label)
                 self._on_finished(self)
 
         def onCallMediaState(self, prm):
@@ -355,13 +367,13 @@ class PhoneService:
         self._label_seq += 1
         return f"{extension}-{self._label_seq}"
 
-    def _handle_dial(self, wav_path: str, extension: str, future) -> None:
+    def _handle_dial(self, wav_path: str, extension: str, future, on_complete=None) -> None:
         try:
             if not (self._acc and self._acc.reg_ok):
                 raise PhoneServiceUnavailable("Phone SIP account is not registered with 3CX right now")
             label = self._next_label(extension)
             dest_uri = _build_uri(extension, config.PHONE_DOMAIN, config.PHONE_PORT, config.PHONE_TRANSPORT)
-            call = PlaybackCall(self._acc, wav_path, label, self._on_call_finished, self._request_hangup)
+            call = PlaybackCall(self._acc, wav_path, label, self._on_call_finished, self._request_hangup, on_complete)
             with self._active_lock:
                 self._active[label] = call
             call.makeCall(dest_uri, pj.CallOpParam(True))
@@ -435,16 +447,21 @@ class PhoneService:
         OS thread. Just queues the actual hangup() for _loop's thread."""
         self._jobs.put(("hangup", label))
 
-    def call_extension(self, wav_path: str, extension: str, timeout: float = 5.0) -> str:
+    def call_extension(self, wav_path: str, extension: str, timeout: float = 5.0, on_complete=None) -> str:
         """Enqueues a call to `extension` playing `wav_path`, and blocks (up
         to `timeout`) for confirmation the INVITE was sent -- not answered.
-        Safe to call from any thread; never touches pjsua2 objects itself."""
+        Safe to call from any thread; never touches pjsua2 objects itself.
+
+        `on_complete(answered, played_to_end)`, if given, fires once from
+        pjsua2's own worker thread when the call disconnects -- not from
+        this thread, and not before then. Keep it fast and exception-safe;
+        it isn't awaited or retried."""
         if not config.PHONE_ENABLED:
             raise PhoneServiceUnavailable("Phone playback is not configured on this server")
         if not self._start_ok:
             raise PhoneServiceUnavailable("Phone SIP client failed to start")
         future: "concurrent.futures.Future[str]" = concurrent.futures.Future()
-        self._jobs.put(("dial", wav_path, extension, future))
+        self._jobs.put(("dial", wav_path, extension, future, on_complete))
         return future.result(timeout=timeout)
 
     def call_back(self, extension: str, dest_number: str, timeout: float = 5.0) -> str:
